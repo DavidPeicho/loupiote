@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use albedo_backend::{shader_bindings, GPUBuffer, UniformBuffer};
 
 use albedo_rtx::passes::{
@@ -34,7 +36,7 @@ async fn setup() -> App {
 
     let window = builder.build(&event_loop).unwrap();
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new( wgpu::Backends::PRIMARY);
     let (size, surface) = unsafe {
         let size = window.inner_size();
         let surface = instance.create_surface(&window);
@@ -44,12 +46,14 @@ async fn setup() -> App {
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
+            force_fallback_adapter: false
         })
         .await
         .expect("No suitable GPU adapters found on the system!");
 
     let optional_features: wgpu::Features = wgpu::Features::default();
-    let required_features: wgpu::Features = wgpu::Features::empty();
+    let required_features: wgpu::Features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
@@ -95,14 +99,17 @@ fn main() {
 
     println!("Window Size = {}x{}", size.width, size.height);
 
-    let mut sc_desc = wgpu::SwapChainDescriptor {
-        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-        format: adapter.get_swap_chain_preferred_format(&surface),
+    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+    let mut surface_config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: swapchain_format,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Mailbox,
     };
-    let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
+
+    let surface = unsafe { instance.create_surface(&window) };
+    surface.configure(&device, &surface_config);
 
     // let scene = load_gltf(&"./examples/pathtracing/assets/box.glb");
     let scene = load_gltf(&"./assets/cornell-box.glb");
@@ -140,13 +147,13 @@ fn main() {
         size: wgpu::Extent3d {
             width: size.width,
             height: size.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba32Float,
-        usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
     });
     let render_target_view = render_target.create_view(&wgpu::TextureViewDescriptor::default());
     let render_target_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -222,42 +229,47 @@ fn main() {
         size: wgpu::Extent3d {
             width: metadata.width,
             height: metadata.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
     });
     let probe_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());
     queue.write_texture(
-        wgpu::TextureCopyView {
+        wgpu::ImageCopyTexture {
             texture: &probe_texture,
+            aspect: wgpu::TextureAspect::All,
             mip_level: 0,
             origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
         },
         image_data_raw,
-        wgpu::TextureDataLayout {
+        wgpu::ImageDataLayout {
             offset: 0,
-            bytes_per_row: std::mem::size_of::<image::hdr::Rgbe8Pixel>() as u32 * metadata.width,
-            rows_per_image: 0,
+            bytes_per_row: NonZeroU32::new(std::mem::size_of::<image::hdr::Rgbe8Pixel>() as u32 * metadata.width),
+            rows_per_image: NonZeroU32::new(metadata.height),
         },
         wgpu::Extent3d {
             width: metadata.width,
             height: metadata.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         },
     );
 
-    let ray_buffer = GPUBuffer::new_with_count(&device, pixel_count as usize);
+    let ray_buffer = GPUBuffer::new_with_usage_count(
+        &device,
+        wgpu::BufferUsages::STORAGE,
+        pixel_count as usize
+    );
     let intersection_buffer = GPUBuffer::new_with_count(&device, pixel_count as usize);
 
     let mut generate_ray_pass = GPURayGenerator::new(&device);
     let mut intersector_pass = GPUIntersector::new(&device);
     let mut shade_pass = GPURadianceEstimator::new(&device);
     let mut accumulation_pass = AccumulationPass::new(&device);
-    let mut blit_pass = BlitPass::new(&device, sc_desc.format);
+    let mut blit_pass = BlitPass::new(&device, swapchain_format);
 
     generate_ray_pass.bind_buffers(&device, &ray_buffer, &camera_buffer);
     intersector_pass.bind_buffers(
@@ -405,20 +417,18 @@ fn main() {
             }
 
             event::Event::RedrawRequested(_) => {
-                let frame = match swap_chain.get_current_frame() {
-                    Ok(frame) => frame,
-                    Err(_) => {
-                        swap_chain = device.create_swap_chain(&surface, &sc_desc);
-                        swap_chain
-                            .get_current_frame()
-                            .expect("Failed to acquire next swap chain texture!")
-                    }
-                };
+                let frame = surface
+                    .get_current_texture()
+                    .expect("Failed to acquire next swap chain texture");
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
 
                 // Updates.
 
                 let duration = std::time::Instant::now() - last_time;
                 last_time += duration;
+
                 // @todo: this assumes 60FPS, it shouldn't.
                 let delta =
                     (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
@@ -428,11 +438,13 @@ fn main() {
                 camera.right = right;
                 camera.up = up;
 
+                println!("Drawing");
+
                 if !camera_controller.is_static() {
-                    // nb_bounces = MOVING_NUM_BOUNCES;
+                    nb_bounces = MOVING_NUM_BOUNCES;
                     global_uniforms.frame_count = 1;
                 } else {
-                    // nb_bounces = STATIC_NUM_BOUNCES;
+                    nb_bounces = STATIC_NUM_BOUNCES;
                 }
                 camera_buffer.update(&queue, &camera);
                 global_uniforms_buffer.update(&queue, &global_uniforms);
@@ -451,7 +463,7 @@ fn main() {
 
                 accumulation_pass.run(&mut encoder, size.width, size.height);
 
-                blit_pass.run(&frame.output, &queue, &mut encoder);
+                blit_pass.run(&view, &queue, &mut encoder);
                 queue.submit(Some(encoder.finish()));
 
                 global_uniforms.frame_count += 1;
