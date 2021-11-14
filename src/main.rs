@@ -111,15 +111,18 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    // let scene = load_gltf(&"./examples/pathtracing/assets/box.glb");
-    let scene = load_gltf(&"./assets/cornell-box.glb");
-    // let scene = load_gltf(&"./examples/gpu_intersector/assets/meetmat-head.glb");
+    // let scene = load_gltf(&"./assets/cornell-box.glb");
+    let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
+    // let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
 
     println!("Materials = [");
     for mat in &scene.materials {
-        println!("\t( color: {} ),", mat.color);
+        println!(
+            "\t( color: {}, roughness: {}, metalness: {} ),",
+            mat.color, mat.roughness, mat.reflectivity
+        );
     }
     println!("]");
     println!("Material count = {}", scene.materials.len());
@@ -438,8 +441,6 @@ fn main() {
                 camera.right = right;
                 camera.up = up;
 
-                println!("Drawing");
-
                 if !camera_controller.is_static() {
                     nb_bounces = MOVING_NUM_BOUNCES;
                     global_uniforms.frame_count = 1;
@@ -465,6 +466,7 @@ fn main() {
 
                 blit_pass.run(&view, &queue, &mut encoder);
                 queue.submit(Some(encoder.finish()));
+                frame.present();
 
                 global_uniforms.frame_count += 1;
             }
