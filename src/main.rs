@@ -2,8 +2,14 @@ use std::num::NonZeroU32;
 
 use albedo_backend::{shader_bindings, GPUBuffer, UniformBuffer};
 
+use albedo_rtx::mesh::Mesh;
 use albedo_rtx::passes::{
-    AccumulationPass, BlitPass, GPUIntersector, GPURadianceEstimator, GPURayGenerator,
+    AccumulationPass,
+    BVHDebugPass,
+    BlitPass,
+    GPUIntersector,
+    GPURadianceEstimator,
+    GPURayGenerator,
 };
 use albedo_rtx::renderer::resources;
 
@@ -112,8 +118,9 @@ fn main() {
     surface.configure(&device, &surface_config);
 
     // let scene = load_gltf(&"./assets/cornell-box.glb");
-    let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
-    // let scene = load_gltf(&"./assets/meetmat-head.glb");
+    // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
+    // let scene = load_gltf(&"./assets/suzanne.glb");
+    let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
 
@@ -126,6 +133,20 @@ fn main() {
     }
     println!("]");
     println!("Material count = {}", scene.materials.len());
+
+    println!("BVHs = [");
+    for (mesh, bvh) in scene.meshes.iter().zip(scene.bvhs.iter()) {
+        println!("\t{{");
+        println!("\t\tVertices = {}", mesh.vertex_count());
+        println!("\t\tTris = {}", mesh.index_count() / 3);
+        println!("\t\tNodes = {}", bvh.nodes.len());
+        println!("\t\tDepth = {}", bvh.compute_depth());
+        println!("\t}}");
+    }
+    println!("\tFlattened Nodes = {}", scene.node_buffer.len());
+    println!("]");
+
+    //// Scene Info
 
     let lights = vec![resources::LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
@@ -272,6 +293,7 @@ fn main() {
     let mut intersector_pass = GPUIntersector::new(&device);
     let mut shade_pass = GPURadianceEstimator::new(&device);
     let mut accumulation_pass = AccumulationPass::new(&device);
+    let mut bvh_debug_pass = BVHDebugPass::new(&device);
     let mut blit_pass = BlitPass::new(&device, swapchain_format);
 
     generate_ray_pass.bind_buffers(&device, &ray_buffer, &camera_buffer);
@@ -312,6 +334,15 @@ fn main() {
         &render_target_sampler,
         &global_uniforms_buffer,
     );
+    bvh_debug_pass.bind_buffers(
+        &device,
+        &ray_buffer,
+        &instance_buffer,
+        &bvh_buffer,
+        &index_buffer,
+        &vertex_buffer,
+        &scene_buffer,
+    );
 
     const STATIC_NUM_BOUNCES: usize = 5;
     const MOVING_NUM_BOUNCES: usize = 2;
@@ -321,6 +352,8 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
+
+    let debug_bvh = true;
 
     event_loop.run(move |event, _, control_flow| {
         // let _ = (&renderer, &app);
@@ -448,6 +481,8 @@ fn main() {
                     nb_bounces = STATIC_NUM_BOUNCES;
                 }
                 camera_buffer.update(&queue, &camera);
+
+                global_uniforms.frame_count = if debug_bvh { 1 } else { global_uniforms.frame_count };
                 global_uniforms_buffer.update(&queue, &global_uniforms);
 
                 // Renders.
@@ -457,13 +492,16 @@ fn main() {
 
                 generate_ray_pass.run(&mut encoder, size.width, size.height);
 
-                for _ in 0..nb_bounces {
-                    intersector_pass.run(&device, &mut encoder, size.width, size.height);
-                    shade_pass.run(&mut encoder, size.width, size.height);
+                if debug_bvh {
+                    bvh_debug_pass.run(&mut encoder, size.width, size.height);
+                } else {
+                    for _ in 0..nb_bounces {
+                        intersector_pass.run(&device, &mut encoder, size.width, size.height);
+                        shade_pass.run(&mut encoder, size.width, size.height);
+                    }
                 }
 
                 accumulation_pass.run(&mut encoder, size.width, size.height);
-
                 blit_pass.run(&view, &queue, &mut encoder);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
