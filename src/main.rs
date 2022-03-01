@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use albedo_backend::{shader_bindings, GPUBuffer, UniformBuffer};
+use albedo_backend::{shader_bindings, ComputePass, GPUBuffer, UniformBuffer};
 
 use albedo_rtx::mesh::Mesh;
 use albedo_rtx::passes::{
@@ -23,6 +23,8 @@ use gltf_loader::load_gltf;
 
 mod camera;
 use camera::CameraMoveCommand;
+
+
 
 struct App {
     instance: wgpu::Instance,
@@ -117,10 +119,10 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    // let scene = load_gltf(&"./assets/cornell-box.glb");
+    let scene = load_gltf(&"./assets/cornell-box.glb");
     // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
     // let scene = load_gltf(&"./assets/suzanne.glb");
-    let scene = load_gltf(&"./assets/meetmat-head.glb");
+    // let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
 
@@ -322,12 +324,14 @@ fn main() {
         &filtered_sampler_2d,
     );
     shade_pass.bind_target(&device, &global_uniforms_buffer);
-    accumulation_pass.bind(
+
+    let accumulation_bind_groups = accumulation_pass.create_bind_groups(
         &device,
         &ray_buffer,
         &render_target_view,
         &global_uniforms_buffer,
     );
+
     blit_pass.bind(
         &device,
         &render_target_view,
@@ -353,7 +357,7 @@ fn main() {
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
-    let debug_bvh = true;
+    let debug_bvh = false;
 
     event_loop.run(move |event, _, control_flow| {
         // let _ = (&renderer, &app);
@@ -487,6 +491,7 @@ fn main() {
 
                 // Renders.
 
+                let dispatch_size = (size.width, size.height, 1);
                 let mut encoder =
                     device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
@@ -501,7 +506,11 @@ fn main() {
                     }
                 }
 
-                accumulation_pass.run(&mut encoder, size.width, size.height);
+                accumulation_pass.dispatch(
+                    &mut encoder,
+                    &accumulation_bind_groups,
+                    dispatch_size,
+                );
                 blit_pass.run(&view, &queue, &mut encoder);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
