@@ -4,7 +4,7 @@ use albedo_backend::{shader_bindings, ComputePass, GPUBuffer, UniformBuffer};
 
 use albedo_rtx::mesh::Mesh;
 use albedo_rtx::passes::{
-    AccumulationPass,
+    AccumulationPassDescriptor,
     BVHDebugPass,
     BlitPass,
     GPUIntersector,
@@ -294,7 +294,10 @@ fn main() {
     let mut generate_ray_pass = GPURayGenerator::new(&device);
     let mut intersector_pass = GPUIntersector::new(&device);
     let mut shade_pass = GPURadianceEstimator::new(&device);
-    let mut accumulation_pass = AccumulationPass::new(&device);
+
+    let accumulation_pass_descriptor = AccumulationPassDescriptor::new(&device);
+
+    // let mut accumulation_pass = AccumulationPass::new(&device);
     let mut bvh_debug_pass = BVHDebugPass::new(&device);
     let mut blit_pass = BlitPass::new(&device, swapchain_format);
 
@@ -325,7 +328,7 @@ fn main() {
     );
     shade_pass.bind_target(&device, &global_uniforms_buffer);
 
-    let accumulation_bind_groups = accumulation_pass.create_bind_groups(
+    let accumulation_bind_groups = accumulation_pass_descriptor.create_frame_bind_groups(
         &device,
         &ray_buffer,
         &render_target_view,
@@ -350,6 +353,7 @@ fn main() {
 
     const STATIC_NUM_BOUNCES: usize = 5;
     const MOVING_NUM_BOUNCES: usize = 2;
+    const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
 
     let mut nb_bounces = STATIC_NUM_BOUNCES;
 
@@ -506,11 +510,15 @@ fn main() {
                     }
                 }
 
-                accumulation_pass.dispatch(
-                    &mut encoder,
-                    &accumulation_bind_groups,
-                    dispatch_size,
-                );
+                {
+                    let mut accumulation_pass = ComputePass::new(
+                        &mut encoder,
+                        &accumulation_pass_descriptor,
+                        &accumulation_bind_groups
+                    );
+                    accumulation_pass.dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                }
+
                 blit_pass.run(&view, &queue, &mut encoder);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
