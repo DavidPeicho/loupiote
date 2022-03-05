@@ -5,14 +5,26 @@ use albedo_backend::{shader_bindings, ComputePass, GPUBuffer, UniformBuffer};
 use albedo_rtx::mesh::Mesh;
 use albedo_rtx::passes::{
     AccumulationPassDescriptor,
+    RayGeneratorPassDescriptor,
+    IntersectorPassDescriptor,
+    ShadingPassDescriptor,
     BVHDebugPass,
     BlitPass,
-    GPUIntersector,
-    GPURadianceEstimator,
-    GPURayGenerator,
 };
-use albedo_rtx::renderer::resources;
+use albedo_rtx::renderer::resources::{
+    self,
+    RayGPU,
+    IntersectionGPU,
+    InstanceGPU,
+    MaterialGPU,
+    BVHNodeGPU,
+    VertexGPU,
+    LightGPU,
+    SceneSettingsGPU,
+    CameraGPU, GlobalUniformsGPU
+};
 
+use wgpu::{Texture, TextureView, Device, BindGroup};
 use winit::{
     event::{self},
     event_loop::EventLoop,
@@ -24,7 +36,122 @@ use gltf_loader::load_gltf;
 mod camera;
 use camera::CameraMoveCommand;
 
+struct ScreenBoundResourcesGPU {
+    ray_buffer: GPUBuffer<RayGPU>,
+    intersection_buffer: GPUBuffer<IntersectionGPU>,
+    render_target: Texture,
+    render_target_view: TextureView,
+}
 
+impl ScreenBoundResourcesGPU {
+    fn new(device: &Device, width: u32, height: u32) -> Self {
+        let render_target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Render Target"),
+            size: wgpu::Extent3d {
+                width: width,
+                height: height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+        });
+        let pixel_count = (width * height) as usize;
+        ScreenBoundResourcesGPU {
+            ray_buffer: GPUBuffer::new_with_usage_count(
+                &device,
+                wgpu::BufferUsages::STORAGE,
+                pixel_count as usize
+            ),
+            intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
+            render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
+            render_target: render_target
+        }
+    }
+}
+
+struct SceneResourcesGPU {
+    global_uniforms_buffer: UniformBuffer<GlobalUniformsGPU>,
+    camera_buffer: UniformBuffer<CameraGPU>,
+    instance_buffer: GPUBuffer<InstanceGPU>,
+    materials_buffer: GPUBuffer<MaterialGPU>,
+    bvh_buffer: GPUBuffer<BVHNodeGPU>,
+    index_buffer: GPUBuffer<u32>,
+    vertex_buffer: GPUBuffer<VertexGPU>,
+    light_buffer: GPUBuffer<LightGPU>,
+    scene_buffer: UniformBuffer<SceneSettingsGPU>,
+    probe_texture: Texture,
+    probe_texture_view: TextureView,
+}
+
+struct BindGroups {
+    generate_ray_pass: BindGroup,
+    intersection_pass: BindGroup,
+    shading_pass: BindGroup,
+    accumulate_pass: BindGroup,
+    blit_pass: BindGroup,
+}
+
+impl BindGroups {
+    fn new(
+        device: &wgpu::Device,
+        screen_resources: &ScreenBoundResourcesGPU,
+        scene_resources: &SceneResourcesGPU,
+        render_target_sampler: &wgpu::Sampler,
+        filtered_sampler_2d: &wgpu::Sampler,
+        ray_pass_desc: &RayGeneratorPassDescriptor,
+        intersector_pass_desc: &IntersectorPassDescriptor,
+        shading_pass_desc: &ShadingPassDescriptor,
+        accumulation_pass_desc: &AccumulationPassDescriptor,
+        blit_pass: &BlitPass
+    ) -> Self {
+        BindGroups {
+            generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
+                &device,
+                &screen_resources.ray_buffer,
+                &scene_resources.camera_buffer
+            ),
+            intersection_pass: intersector_pass_desc.create_frame_bind_groups(
+                &device,
+                &screen_resources.intersection_buffer,
+                &scene_resources.instance_buffer,
+                &scene_resources.bvh_buffer,
+                &scene_resources.index_buffer,
+                &scene_resources.vertex_buffer,
+                &scene_resources.light_buffer,
+                &screen_resources.ray_buffer,
+                &scene_resources.scene_buffer,
+            ),
+            shading_pass: shading_pass_desc.create_frame_bind_groups(&device,
+                &screen_resources.ray_buffer,
+                &screen_resources.intersection_buffer,
+                &scene_resources.instance_buffer,
+                &scene_resources.index_buffer,
+                &scene_resources.vertex_buffer,
+                &scene_resources.light_buffer,
+                &scene_resources.materials_buffer,
+                &scene_resources.scene_buffer,
+                &scene_resources.probe_texture_view,
+                &filtered_sampler_2d,
+                &scene_resources.global_uniforms_buffer
+            ),
+            accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
+                &device,
+                &screen_resources.ray_buffer,
+                &screen_resources.render_target_view,
+                &scene_resources.global_uniforms_buffer,
+            ),
+            blit_pass: blit_pass.create_frame_bind_groups(
+                &device,
+                &screen_resources.render_target_view,
+                &render_target_sampler,
+                &scene_resources.global_uniforms_buffer,
+            )
+        }
+    }
+}
 
 struct App {
     instance: wgpu::Instance,
@@ -35,6 +162,17 @@ struct App {
     surface: wgpu::Surface,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
+    downsample_size: winit::dpi::PhysicalSize<u32>,
+}
+
+impl App {
+
+    fn get_downsampled_size(size: winit::dpi::PhysicalSize<u32>, factor: f32) -> winit::dpi::PhysicalSize<u32> {
+        let w = size.width as f32;
+        let h = size.height as f32;
+        winit::dpi::PhysicalSize::new((w * factor) as u32, (h * factor) as u32)
+    }
+
 }
 
 async fn setup() -> App {
@@ -90,6 +228,7 @@ async fn setup() -> App {
         surface,
         queue,
         size,
+        downsample_size: App::get_downsampled_size(size, 0.25)
     }
 }
 
@@ -103,9 +242,11 @@ fn main() {
         surface,
         queue,
         size,
+        downsample_size
     } = pollster::block_on(setup());
 
     println!("Window Size = {}x{}", size.width, size.height);
+    println!("Downsampled Window Size = {}x{}", downsample_size.width, downsample_size.height);
 
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
     let mut surface_config = wgpu::SurfaceConfiguration {
@@ -166,23 +307,18 @@ fn main() {
 
     let mut camera = resources::CameraGPU::new();
 
-    let pixel_count = size.width * size.height;
+    // Per-screen resolution resources, including:
+    //  * Rays
+    //  * Intersections
+    //  * Render Target
+    let screen_bound_resources = ScreenBoundResourcesGPU::new(&device, size.width, size.height);
+    let downsampled_screen_bound_resources = ScreenBoundResourcesGPU::new(
+        &device,
+        downsample_size.width,
+        downsample_size.height
+    );
 
-    let render_target = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Render Target"),
-        size: wgpu::Extent3d {
-            width: size.width,
-            height: size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba32Float,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-    });
-    let render_target_view = render_target.create_view(&wgpu::TextureViewDescriptor::default());
-    let render_target_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+    let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -202,41 +338,11 @@ fn main() {
         ..Default::default()
     });
 
-    let mut global_uniforms = resources::GlobalUniformsGPU::new();
-    let mut global_uniforms_buffer = UniformBuffer::new(&device);
-
-    let mut camera_buffer = UniformBuffer::new(&device);
-    camera_buffer.update(&queue, &camera);
-
-    let mut instance_buffer = GPUBuffer::from_data(&device, &scene.instances);
-    instance_buffer.update(&queue, &scene.instances);
-
-    let mut materials_buffer = GPUBuffer::from_data(&device, &scene.materials);
-    materials_buffer.update(&queue, &scene.materials);
-
-    let mut bvh_buffer = GPUBuffer::from_data(&device, &scene.node_buffer);
-    bvh_buffer.update(&queue, &scene.node_buffer);
-
-    let mut index_buffer = GPUBuffer::from_data(&device, &scene.index_buffer);
-    index_buffer.update(&queue, &scene.index_buffer);
-
-    let mut vertex_buffer = GPUBuffer::from_data(&device, &scene.vertex_buffer);
-    vertex_buffer.update(&queue, &scene.vertex_buffer);
-
-    let mut light_buffer = GPUBuffer::from_data(&device, &lights);
-    light_buffer.update(&queue, &lights);
-
-    let mut scene_buffer = UniformBuffer::new(&device);
-    scene_buffer.update(
-        &queue,
-        &resources::SceneSettingsGPU {
-            light_count: lights.len() as u32,
-            instance_count: scene.instances.len() as u32,
-        },
-    );
+    /**
+     * Scene Resources GPU.
+     */
 
     //// Load HDRi enviromment.
-
     let file_reader = std::io::BufReader::new(
         std::fs::File::open("./assets/uffizi-large.hdr").unwrap(),
     );
@@ -249,7 +355,6 @@ fn main() {
             image_data.len() * std::mem::size_of::<image::hdr::Rgbe8Pixel>(),
         )
     };
-
     let probe_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Cubemap"),
         size: wgpu::Extent3d {
@@ -263,7 +368,7 @@ fn main() {
         format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
     });
-    let probe_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let probe_texture_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());
     queue.write_texture(
         wgpu::ImageCopyTexture {
             texture: &probe_texture,
@@ -283,72 +388,73 @@ fn main() {
             depth_or_array_layers: 1,
         },
     );
+    //// Load HDRi enviromment.
 
-    let ray_buffer = GPUBuffer::new_with_usage_count(
-        &device,
-        wgpu::BufferUsages::STORAGE,
-        pixel_count as usize
+    let mut global_uniforms = resources::GlobalUniformsGPU::new();
+    let mut scene_resources_gpu = SceneResourcesGPU {
+        global_uniforms_buffer: UniformBuffer::new(&device),
+        camera_buffer: UniformBuffer::new(&device),
+        instance_buffer: GPUBuffer::from_data(&device, &scene.instances),
+        materials_buffer: GPUBuffer::from_data(&device, &scene.materials),
+        bvh_buffer: GPUBuffer::from_data(&device, &scene.node_buffer),
+        index_buffer: GPUBuffer::from_data(&device, &scene.index_buffer),
+        vertex_buffer: GPUBuffer::from_data(&device, &scene.vertex_buffer),
+        light_buffer: GPUBuffer::from_data(&device, &lights),
+        scene_buffer: UniformBuffer::new(&device),
+        probe_texture,
+        probe_texture_view,
+    };
+    scene_resources_gpu.camera_buffer.update(&queue, &camera);
+    scene_resources_gpu.instance_buffer.update(&queue, &scene.instances);
+    scene_resources_gpu.materials_buffer.update(&queue, &scene.materials);
+    scene_resources_gpu.bvh_buffer.update(&queue, &scene.node_buffer);
+    scene_resources_gpu.index_buffer.update(&queue, &scene.index_buffer);
+    scene_resources_gpu.vertex_buffer.update(&queue, &scene.vertex_buffer);
+    scene_resources_gpu.light_buffer.update(&queue, &lights);
+    scene_resources_gpu.scene_buffer.update(
+        &queue,
+        &resources::SceneSettingsGPU {
+            light_count: lights.len() as u32,
+            instance_count: scene.instances.len() as u32,
+        },
     );
-    let intersection_buffer = GPUBuffer::new_with_count(&device, pixel_count as usize);
 
-    let mut generate_ray_pass = GPURayGenerator::new(&device);
-    let mut intersector_pass = GPUIntersector::new(&device);
-    let mut shade_pass = GPURadianceEstimator::new(&device);
+    // Creates every passes:
+    //  * Ray Generator
+    //  * Ray Intersector
+    //  * Shading
+    //  * Accumulation
+    //  * Blitting
 
+    let generate_ray_descriptor = RayGeneratorPassDescriptor::new(&device);
+    let intersector_pass_descriptor = IntersectorPassDescriptor::new(&device);
     let accumulation_pass_descriptor = AccumulationPassDescriptor::new(&device);
+    let shading_pass_descriptor = ShadingPassDescriptor::new(&device);
+    let blit_pass = BlitPass::new(&device, swapchain_format);
 
-    // let mut accumulation_pass = AccumulationPass::new(&device);
-    let mut bvh_debug_pass = BVHDebugPass::new(&device);
-    let mut blit_pass = BlitPass::new(&device, swapchain_format);
-
-    generate_ray_pass.bind_buffers(&device, &ray_buffer, &camera_buffer);
-    intersector_pass.bind_buffers(
+    let bindgroups_fullres = BindGroups::new(
         &device,
-        &intersection_buffer,
-        &instance_buffer,
-        &bvh_buffer,
-        &index_buffer,
-        &vertex_buffer,
-        &light_buffer,
-        &ray_buffer,
-        &scene_buffer,
-    );
-    shade_pass.bind_buffers(
-        &device,
-        &ray_buffer,
-        &intersection_buffer,
-        &instance_buffer,
-        &index_buffer,
-        &vertex_buffer,
-        &light_buffer,
-        &materials_buffer,
-        &scene_buffer,
-        &probe_view,
+        &screen_bound_resources,
+        &scene_resources_gpu,
+        &nearest_sampler,
         &filtered_sampler_2d,
+        &generate_ray_descriptor,
+        &intersector_pass_descriptor,
+        &shading_pass_descriptor,
+        &accumulation_pass_descriptor,
+        &blit_pass
     );
-    shade_pass.bind_target(&device, &global_uniforms_buffer);
-
-    let accumulation_bind_groups = accumulation_pass_descriptor.create_frame_bind_groups(
+    let bindgroups_downsampled = BindGroups::new(
         &device,
-        &ray_buffer,
-        &render_target_view,
-        &global_uniforms_buffer,
-    );
-
-    blit_pass.bind(
-        &device,
-        &render_target_view,
-        &render_target_sampler,
-        &global_uniforms_buffer,
-    );
-    bvh_debug_pass.bind_buffers(
-        &device,
-        &ray_buffer,
-        &instance_buffer,
-        &bvh_buffer,
-        &index_buffer,
-        &vertex_buffer,
-        &scene_buffer,
+        &downsampled_screen_bound_resources,
+        &scene_resources_gpu,
+        &nearest_sampler,
+        &filtered_sampler_2d,
+        &generate_ray_descriptor,
+        &intersector_pass_descriptor,
+        &shading_pass_descriptor,
+        &accumulation_pass_descriptor,
+        &blit_pass
     );
 
     const STATIC_NUM_BOUNCES: usize = 5;
@@ -361,8 +467,9 @@ fn main() {
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
-    let debug_bvh = false;
-
+    let mut fullscreen_dimensions = (size.width, size.height);
+    let mut downsample_dimensions = (downsample_size.width, downsample_size.height);
+    let mut was_moving = false;
     event_loop.run(move |event, _, control_flow| {
         // let _ = (&renderer, &app);
         match event {
@@ -488,42 +595,63 @@ fn main() {
                 } else {
                     nb_bounces = STATIC_NUM_BOUNCES;
                 }
-                camera_buffer.update(&queue, &camera);
-
-                global_uniforms.frame_count = if debug_bvh { 1 } else { global_uniforms.frame_count };
-                global_uniforms_buffer.update(&queue, &global_uniforms);
+                global_uniforms.frame_count = if was_moving && camera_controller.is_static() {
+                    1
+                } else {
+                    global_uniforms.frame_count
+                };
+                scene_resources_gpu.camera_buffer.update(&queue, &camera);
+                scene_resources_gpu.global_uniforms_buffer.update(&queue, &global_uniforms);
 
                 // Renders.
 
-                let dispatch_size = (size.width, size.height, 1);
                 let mut encoder =
                     device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-                generate_ray_pass.run(&mut encoder, size.width, size.height);
-
-                if debug_bvh {
-                    bvh_debug_pass.run(&mut encoder, size.width, size.height);
+                let (bindgroups, dispatch_size) = if camera_controller.is_static() {
+                    (&bindgroups_fullres, (fullscreen_dimensions.0, fullscreen_dimensions.1, 1))
                 } else {
-                    for _ in 0..nb_bounces {
-                        intersector_pass.run(&device, &mut encoder, size.width, size.height);
-                        shade_pass.run(&mut encoder, size.width, size.height);
-                    }
-                }
+                    (&bindgroups_downsampled, (downsample_dimensions.0, downsample_dimensions.1, 1))
+                };
 
-                {
-                    let mut accumulation_pass = ComputePass::new(
+                // Step 1:
+                //
+                // Generate a ray struct for every fragment.
+                ComputePass::new(
+                    &mut encoder,
+                    &generate_ray_descriptor,
+                    &bindgroups.generate_ray_pass
+                ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+
+                // Step 2:
+                //
+                // Alternate between intersection & shading.
+                for _ in 0..nb_bounces {
+                    ComputePass::new(
                         &mut encoder,
-                        &accumulation_pass_descriptor,
-                        &accumulation_bind_groups
-                    );
-                    accumulation_pass.dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                        &intersector_pass_descriptor,
+                        &bindgroups.intersection_pass
+                    ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                    ComputePass::new(
+                        &mut encoder,
+                        &shading_pass_descriptor,
+                        &bindgroups.shading_pass
+                    ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
                 }
 
-                blit_pass.run(&view, &queue, &mut encoder);
+                // Accumulation.
+                ComputePass::new(
+                    &mut encoder,
+                    &accumulation_pass_descriptor,
+                    &bindgroups.accumulate_pass
+                ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+
+                blit_pass.draw(&mut encoder, &view, &bindgroups.blit_pass);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
 
                 global_uniforms.frame_count += 1;
+                was_moving = !camera_controller.is_static();
             }
             _ => {}
         }
