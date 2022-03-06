@@ -19,7 +19,7 @@ use camera::CameraMoveCommand;
 mod renderer;
 use renderer::Renderer;
 
-struct App {
+struct WindowApp {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -28,20 +28,14 @@ struct App {
     surface: wgpu::Surface,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
-    downsample_size: winit::dpi::PhysicalSize<u32>,
 }
 
-impl App {
-
-    fn get_downsampled_size(size: winit::dpi::PhysicalSize<u32>, factor: f32) -> winit::dpi::PhysicalSize<u32> {
-        let w = size.width as f32;
-        let h = size.height as f32;
-        winit::dpi::PhysicalSize::new((w * factor) as u32, (h * factor) as u32)
-    }
-
+struct AppData {
+    device: wgpu::Device,
+    renderer: Renderer,
 }
 
-async fn setup() -> App {
+async fn setup() -> WindowApp {
     let event_loop = EventLoop::new();
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title("Albedo Pathtracer");
@@ -85,7 +79,7 @@ async fn setup() -> App {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
-    App {
+        WindowApp {
         instance,
         adapter,
         device,
@@ -94,12 +88,11 @@ async fn setup() -> App {
         surface,
         queue,
         size,
-        downsample_size: App::get_downsampled_size(size, 0.25)
     }
 }
 
 fn main() {
-    let App {
+    let WindowApp {
         instance,
         adapter,
         device,
@@ -108,11 +101,9 @@ fn main() {
         surface,
         queue,
         size,
-        downsample_size
     } = pollster::block_on(setup());
 
     println!("Window Size = {}x{}", size.width, size.height);
-    println!("Downsampled Window Size = {}x{}", downsample_size.width, downsample_size.height);
 
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
     let mut surface_config = wgpu::SurfaceConfiguration {
@@ -214,19 +205,30 @@ fn main() {
 
     //// Renderer:
 
-    let mut renderer = Renderer::new(
-        &device,
-        (size.width, size.height),
-        swapchain_format,
-        &scene_resources_gpu
-    );
-
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
+    let mut app = core::cell::RefCell::new(Box::new(AppData {
+        renderer: Renderer::new(
+            &device,
+            (size.width, size.height),
+            swapchain_format,
+            &scene_resources_gpu
+        ),
+        device
+    }));
+
+    let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
+    hotwatch.watch(
+        "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv",
+        move |event: hotwatch::Event| {
+        if let hotwatch::Event::Write(path) = event {
+            println!("War has changed. {}", app.get_mut().renderer.get_size().0);
+        }
+    }).expect("failed to watch file!");
+
     event_loop.run(move |event, _, control_flow| {
-        // let _ = (&renderer, &app);
         match event {
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -341,15 +343,16 @@ fn main() {
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
-                renderer.update_camera(
+                let app = app.into_inner();
+                app.renderer.update_camera(
                     &queue,
                     camera_controller.origin,
                     camera_right,
                     camera_up
                 );
-                renderer.accumulate = camera_controller.is_static();
+                app.renderer.accumulate = camera_controller.is_static();
 
-                let encoder = renderer.render(&device, &view, &queue);
+                let encoder = app.renderer.render(&(app.device), &view, &queue);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
             }

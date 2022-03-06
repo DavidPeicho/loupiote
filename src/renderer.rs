@@ -212,6 +212,10 @@ impl Renderer {
         renderer
     }
 
+    pub fn get_size(&self) -> (u32, u32) {
+        self.size
+    }
+
     pub fn update_camera(
         &mut self,
         queue: &wgpu::Queue,
