@@ -1,11 +1,13 @@
+use std::sync::{Arc, Mutex};
+
 use albedo_rtx::mesh::Mesh;
-use albedo_rtx::renderer::resources::{
-    LightGPU,
-};
+use albedo_rtx::renderer::resources::LightGPU;
 use winit::{
     event::{self},
     event_loop::EventLoop,
 };
+
+mod utils;
 
 mod gltf_loader;
 use gltf_loader::load_gltf;
@@ -42,7 +44,7 @@ async fn setup() -> WindowApp {
 
     let window = builder.build(&event_loop).unwrap();
 
-    let instance = wgpu::Instance::new( wgpu::Backends::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let (size, surface) = unsafe {
         let size = window.inner_size();
         let surface = instance.create_surface(&window);
@@ -52,13 +54,14 @@ async fn setup() -> WindowApp {
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
-            force_fallback_adapter: false
+            force_fallback_adapter: false,
         })
         .await
         .expect("No suitable GPU adapters found on the system!");
 
     let optional_features: wgpu::Features = wgpu::Features::default();
-    let required_features: wgpu::Features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    let required_features: wgpu::Features =
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
@@ -79,7 +82,7 @@ async fn setup() -> WindowApp {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
-        WindowApp {
+    WindowApp {
         instance,
         adapter,
         device,
@@ -89,6 +92,36 @@ async fn setup() -> WindowApp {
         queue,
         size,
     }
+}
+
+fn watch_shading_shader(
+    hotwatch: &mut hotwatch::Hotwatch,
+    device_mutex: &Arc<Mutex<wgpu::Device>>,
+    renderer_mutex: &Arc<Mutex<Renderer>>,
+) {
+    const PATH: &str = "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv";
+
+    let device = device_mutex.clone();
+    let renderer = renderer_mutex.clone();
+    hotwatch
+        .watch(PATH, move |event: hotwatch::Event| {
+            if let hotwatch::Event::Write(_) = event {
+                let file_data = utils::load_file(PATH);
+                let desc = wgpu::ShaderModuleDescriptor {
+                    label: Some("Shading"),
+                    source: wgpu::util::make_spirv(&file_data[..]),
+                };
+                println!("[ SHADER COMPILATION ]: updating '{}'...", PATH);
+                renderer
+                    .lock()
+                    .unwrap()
+                    .passes
+                    .shading
+                    .set_shader(&device.lock().unwrap(), &desc);
+                println!("[ SHADER COMPILATION ]: '{}' updated!", PATH);
+            }
+        })
+        .expect("failed to watch file!");
 }
 
 fn main() {
@@ -103,7 +136,12 @@ fn main() {
         size,
     } = pollster::block_on(setup());
 
-    println!("Window Size = {}x{}", size.width, size.height);
+    println!("\n============================================================");
+    println!("                   🚀 Albedo Pathtracer 🚀                   ");
+    println!("============================================================\n");
+
+    println!("➡️  Info\n");
+    println!("\tDimensions = {}x{}", size.width, size.height);
 
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
     let mut surface_config = wgpu::SurfaceConfiguration {
@@ -123,18 +161,19 @@ fn main() {
     // let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
+    println!("➡️  Scene\n");
 
-    println!("Materials = [");
+    println!("\tMaterials =\n");
     for mat in &scene.materials {
         println!(
             "\t( color: {}, roughness: {}, metalness: {} ),",
             mat.color, mat.roughness, mat.reflectivity
         );
     }
-    println!("]");
-    println!("Material count = {}", scene.materials.len());
 
-    println!("BVHs = [");
+    println!("➡️  BVH\n");
+    println!("\tNode Count = {}", scene.node_buffer.len());
+    println!("\tNodes =");
     for (mesh, bvh) in scene.meshes.iter().zip(scene.bvhs.iter()) {
         println!("\t{{");
         println!("\t\tVertices = {}", mesh.vertex_count());
@@ -143,9 +182,6 @@ fn main() {
         println!("\t\tDepth = {}", bvh.compute_depth());
         println!("\t}}");
     }
-    println!("\tFlattened Nodes = {}", scene.node_buffer.len());
-    println!("]");
-
     //// Scene Info
 
     let lights = vec![LightGPU::from_matrix(
@@ -170,9 +206,8 @@ fn main() {
     //// GPU Scene:
 
     //// Load HDRi enviromment.
-    let file_reader = std::io::BufReader::new(
-        std::fs::File::open("./assets/uffizi-large.hdr").unwrap(),
-    );
+    let file_reader =
+        std::io::BufReader::new(std::fs::File::open("./assets/uffizi-large.hdr").unwrap());
     let decoder = image::hdr::HdrDecoder::new(file_reader).unwrap();
     let metadata = decoder.metadata();
     let image_data = decoder.read_image_native().unwrap();
@@ -192,16 +227,32 @@ fn main() {
         &scene.node_buffer,
         &scene.index_buffer,
         &scene.vertex_buffer,
-        &lights
+        &lights,
     );
-    scene_resources_gpu.instance_buffer.update(&queue, &scene.instances);
-    scene_resources_gpu.materials_buffer.update(&queue, &scene.materials);
-    scene_resources_gpu.bvh_buffer.update(&queue, &scene.node_buffer);
-    scene_resources_gpu.index_buffer.update(&queue, &scene.index_buffer);
-    scene_resources_gpu.vertex_buffer.update(&queue, &scene.vertex_buffer);
+    scene_resources_gpu
+        .instance_buffer
+        .update(&queue, &scene.instances);
+    scene_resources_gpu
+        .materials_buffer
+        .update(&queue, &scene.materials);
+    scene_resources_gpu
+        .bvh_buffer
+        .update(&queue, &scene.node_buffer);
+    scene_resources_gpu
+        .index_buffer
+        .update(&queue, &scene.index_buffer);
+    scene_resources_gpu
+        .vertex_buffer
+        .update(&queue, &scene.vertex_buffer);
     scene_resources_gpu.light_buffer.update(&queue, &lights);
     scene_resources_gpu.update_globals(&queue, scene.instances.len() as u32, lights.len() as u32);
-    scene_resources_gpu.upload_probe(&device, &queue, image_data_raw, metadata.width, metadata.height);
+    scene_resources_gpu.upload_probe(
+        &device,
+        &queue,
+        image_data_raw,
+        metadata.width,
+        metadata.height,
+    );
 
     //// Renderer:
 
@@ -209,24 +260,16 @@ fn main() {
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
-    let mut app = core::cell::RefCell::new(Box::new(AppData {
-        renderer: Renderer::new(
-            &device,
-            (size.width, size.height),
-            swapchain_format,
-            &scene_resources_gpu
-        ),
-        device
-    }));
+    let renderer = Arc::new(Mutex::new(Renderer::new(
+        &device,
+        (size.width, size.height),
+        swapchain_format,
+        &scene_resources_gpu,
+    )));
+    let device = Arc::new(Mutex::new(device));
 
     let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
-    hotwatch.watch(
-        "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv",
-        move |event: hotwatch::Event| {
-        if let hotwatch::Event::Write(path) = event {
-            println!("War has changed. {}", app.get_mut().renderer.get_size().0);
-        }
-    }).expect("failed to watch file!");
+    watch_shading_shader(&mut hotwatch, &device, &renderer);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -343,16 +386,11 @@ fn main() {
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
-                let app = app.into_inner();
-                app.renderer.update_camera(
-                    &queue,
-                    camera_controller.origin,
-                    camera_right,
-                    camera_up
-                );
-                app.renderer.accumulate = camera_controller.is_static();
-
-                let encoder = app.renderer.render(&(app.device), &view, &queue);
+                let mut renderer = renderer.lock().unwrap();
+                let mut device = device.lock().unwrap();
+                renderer.update_camera(&queue, camera_controller.origin, camera_right, camera_up);
+                renderer.accumulate = camera_controller.is_static();
+                let encoder = renderer.render(&device, &view, &queue);
                 queue.submit(Some(encoder.finish()));
                 frame.present();
             }

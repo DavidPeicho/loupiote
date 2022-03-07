@@ -101,7 +101,7 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Scene {
         materials.push(renderer::resources::MaterialGPU::new(
             pbr.base_color_factor().into(),
             pbr.roughness_factor(),
-            pbr.metallic_factor()
+            pbr.metallic_factor(),
         ));
     }
 

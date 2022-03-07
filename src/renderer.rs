@@ -1,18 +1,10 @@
 use albedo_backend::{ComputePass, GPUBuffer, UniformBuffer};
 
-use albedo_rtx::renderer::resources::{
-    RayGPU,
-    GlobalUniformsGPU,
-    IntersectionGPU,
-    CameraGPU,
-};
 use albedo_rtx::passes::{
-    AccumulationPassDescriptor,
-    RayGeneratorPassDescriptor,
-    IntersectorPassDescriptor,
+    AccumulationPassDescriptor, BlitPass, IntersectorPassDescriptor, RayGeneratorPassDescriptor,
     ShadingPassDescriptor,
-    BlitPass,
 };
+use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
 
 use crate::scene::SceneGPU;
 
@@ -43,11 +35,11 @@ impl ScreenBoundResourcesGPU {
             ray_buffer: GPUBuffer::new_with_usage_count(
                 &device,
                 wgpu::BufferUsages::STORAGE,
-                pixel_count as usize
+                pixel_count as usize,
             ),
             intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
-            render_target: render_target
+            render_target: render_target,
         }
     }
 }
@@ -73,13 +65,13 @@ impl BindGroups {
         intersector_pass_desc: &IntersectorPassDescriptor,
         shading_pass_desc: &ShadingPassDescriptor,
         accumulation_pass_desc: &AccumulationPassDescriptor,
-        blit_pass: &BlitPass
+        blit_pass: &BlitPass,
     ) -> Self {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 &device,
                 &screen_resources.ray_buffer,
-                camera_uniforms
+                camera_uniforms,
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 &device,
@@ -92,7 +84,8 @@ impl BindGroups {
                 &screen_resources.ray_buffer,
                 &scene_resources.scene_settings_buffer,
             ),
-            shading_pass: shading_pass_desc.create_frame_bind_groups(&device,
+            shading_pass: shading_pass_desc.create_frame_bind_groups(
+                &device,
                 &screen_resources.ray_buffer,
                 &screen_resources.intersection_buffer,
                 &scene_resources.instance_buffer,
@@ -103,7 +96,7 @@ impl BindGroups {
                 &scene_resources.scene_settings_buffer,
                 scene_resources.probe_texture_view.as_ref().unwrap(),
                 &filtered_sampler_2d,
-                global_uniforms
+                global_uniforms,
             ),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 &device,
@@ -116,12 +109,12 @@ impl BindGroups {
                 &screen_resources.render_target_view,
                 &render_target_sampler,
                 global_uniforms,
-            )
+            ),
         }
     }
 }
 
-struct Passes {
+pub struct Passes {
     pub rays: RayGeneratorPassDescriptor,
     pub intersection: IntersectorPassDescriptor,
     pub shading: ShadingPassDescriptor,
@@ -137,7 +130,7 @@ pub struct Renderer {
     global_uniforms: GlobalUniformsGPU,
     global_uniforms_buffer: UniformBuffer<GlobalUniformsGPU>,
 
-    passes: Passes,
+    pub passes: Passes,
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
 
@@ -152,7 +145,6 @@ pub struct Renderer {
 }
 
 impl Renderer {
-
     fn get_downsampled_size(size: (u32, u32), factor: f32) -> (u32, u32) {
         let w = size.0 as f32;
         let h = size.1 as f32;
@@ -163,7 +155,7 @@ impl Renderer {
         device: &wgpu::Device,
         size: (u32, u32),
         swapchain_format: wgpu::TextureFormat,
-        scene_resources: &SceneGPU
+        scene_resources: &SceneGPU,
     ) -> Self {
         let downsample_size = Renderer::get_downsampled_size(size, 0.25);
         let mut renderer = Renderer {
@@ -171,7 +163,7 @@ impl Renderer {
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
                 &device,
                 downsample_size.0,
-                downsample_size.1
+                downsample_size.1,
             ),
             camera_uniforms: UniformBuffer::new(&device),
             global_uniforms: GlobalUniformsGPU::new(),
@@ -223,23 +215,24 @@ impl Renderer {
         right: glam::Vec3,
         up: glam::Vec3,
     ) {
-        self.camera_uniforms.update(&queue, &CameraGPU {
-            origin,
-            right,
-            up,
-            ..Default::default()
-        });
+        self.camera_uniforms.update(
+            &queue,
+            &CameraGPU {
+                origin,
+                right,
+                up,
+                ..Default::default()
+            },
+        );
     }
 
-    pub fn resize(size: (u32, u32)) {
-        
-    }
+    pub fn resize(size: (u32, u32)) {}
 
     pub fn render(
         &mut self,
         device: &wgpu::Device,
         view: &wgpu::TextureView,
-        queue: &wgpu::Queue
+        queue: &wgpu::Queue,
     ) -> wgpu::CommandEncoder {
         const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
         const STATIC_NUM_BOUNCES: usize = 5;
@@ -257,20 +250,16 @@ impl Renderer {
             nb_bounces = MOVING_NUM_BOUNCES;
             self.global_uniforms.frame_count = 1;
             bindgroups = &self.downsample_bindgroups;
-            dispatch_size = (
-                self.downsample_size.0,
-                self.downsample_size.1,
-                1
-            );
+            dispatch_size = (self.downsample_size.0, self.downsample_size.1, 1);
         }
         if !self.accumulate_last_frame && self.accumulate {
             self.global_uniforms.frame_count = 1
         }
-        self.global_uniforms_buffer.update(&queue, &self.global_uniforms);
+        self.global_uniforms_buffer
+            .update(&queue, &self.global_uniforms);
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: None
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Step 1:
         //
@@ -278,8 +267,9 @@ impl Renderer {
         ComputePass::new(
             &mut encoder,
             &self.passes.rays,
-            &bindgroups.as_ref().unwrap().generate_ray_pass
-        ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+            &bindgroups.as_ref().unwrap().generate_ray_pass,
+        )
+        .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
 
         // Step 2:
         //
@@ -288,23 +278,28 @@ impl Renderer {
             ComputePass::new(
                 &mut encoder,
                 &self.passes.intersection,
-                &bindgroups.as_ref().unwrap().intersection_pass
-            ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                &bindgroups.as_ref().unwrap().intersection_pass,
+            )
+            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
             ComputePass::new(
                 &mut encoder,
                 &self.passes.shading,
-                &bindgroups.as_ref().unwrap().shading_pass
-            ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                &bindgroups.as_ref().unwrap().shading_pass,
+            )
+            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
         }
 
         // Accumulation.
         ComputePass::new(
             &mut encoder,
             &self.passes.accumulation,
-            &bindgroups.as_ref().unwrap().accumulate_pass
-        ).dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+            &bindgroups.as_ref().unwrap().accumulate_pass,
+        )
+        .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
 
-        self.passes.blit.draw(&mut encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
+        self.passes
+            .blit
+            .draw(&mut encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
 
         self.global_uniforms.frame_count += 1;
         self.accumulate_last_frame = self.accumulate;
@@ -312,11 +307,7 @@ impl Renderer {
         encoder
     }
 
-    fn _create_bind_groups(
-        &mut self,
-        device: &wgpu::Device,
-        scene_resources: &SceneGPU
-    ) {
+    fn _create_bind_groups(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             &device,
             &self.screen_bound_resources,
@@ -329,7 +320,7 @@ impl Renderer {
             &self.passes.intersection,
             &self.passes.shading,
             &self.passes.accumulation,
-            &self.passes.blit
+            &self.passes.blit,
         ));
         self.downsample_bindgroups = Some(BindGroups::new(
             &device,
@@ -343,8 +334,7 @@ impl Renderer {
             &self.passes.intersection,
             &self.passes.shading,
             &self.passes.accumulation,
-            &self.passes.blit
+            &self.passes.blit,
         ));
     }
-
 }

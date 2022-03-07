@@ -2,12 +2,7 @@ use std::num::NonZeroU32;
 
 use albedo_backend::{GPUBuffer, UniformBuffer};
 use albedo_rtx::renderer::resources::{
-    InstanceGPU,
-    MaterialGPU,
-    BVHNodeGPU,
-    VertexGPU,
-    LightGPU,
-    SceneSettingsGPU,
+    BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, SceneSettingsGPU, VertexGPU,
 };
 
 pub struct SceneGPU {
@@ -23,7 +18,6 @@ pub struct SceneGPU {
 }
 
 impl SceneGPU {
-
     pub fn new(
         device: &wgpu::Device,
         instances: &[InstanceGPU],
@@ -62,7 +56,7 @@ impl SceneGPU {
         queue: &wgpu::Queue,
         data: &[u8],
         width: u32,
-        height: u32
+        height: u32,
     ) {
         let probe_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cubemap"),
@@ -89,7 +83,9 @@ impl SceneGPU {
             data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(std::mem::size_of::<image::hdr::Rgbe8Pixel>() as u32 * width),
+                bytes_per_row: NonZeroU32::new(
+                    std::mem::size_of::<image::hdr::Rgbe8Pixel>() as u32 * width,
+                ),
                 rows_per_image: NonZeroU32::new(height),
             },
             wgpu::Extent3d {
@@ -102,5 +98,4 @@ impl SceneGPU {
         self.probe_texture = Some(probe_texture);
         self.probe_texture_view = Some(probe_texture_view);
     }
-
 }
