@@ -11,7 +11,6 @@ use crate::scene::SceneGPU;
 struct ScreenBoundResourcesGPU {
     ray_buffer: GPUBuffer<RayGPU>,
     intersection_buffer: GPUBuffer<IntersectionGPU>,
-    render_target: wgpu::Texture,
     render_target_view: wgpu::TextureView,
 }
 
@@ -39,7 +38,6 @@ impl ScreenBoundResourcesGPU {
             ),
             intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
-            render_target: render_target,
         }
     }
 }
@@ -140,6 +138,7 @@ pub struct Renderer {
     size: (u32, u32),
     downsample_size: (u32, u32),
 
+    pub downsample_factor: f32,
     accumulate_last_frame: bool,
     pub accumulate: bool,
 }
@@ -157,7 +156,8 @@ impl Renderer {
         swapchain_format: wgpu::TextureFormat,
         scene_resources: &SceneGPU,
     ) -> Self {
-        let downsample_size = Renderer::get_downsampled_size(size, 0.25);
+        let downsample_factor = 0.25;
+        let downsample_size = Renderer::get_downsampled_size(size, downsample_factor);
         let mut renderer = Renderer {
             screen_bound_resources: ScreenBoundResourcesGPU::new(&device, size.0, size.1),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
@@ -197,15 +197,12 @@ impl Renderer {
             downsample_bindgroups: None,
             size,
             downsample_size,
+            downsample_factor,
             accumulate: true,
             accumulate_last_frame: false,
         };
         renderer._create_bind_groups(device, scene_resources);
         renderer
-    }
-
-    pub fn get_size(&self) -> (u32, u32) {
-        self.size
     }
 
     pub fn update_camera(
@@ -226,7 +223,15 @@ impl Renderer {
         );
     }
 
-    pub fn resize(size: (u32, u32)) {}
+    pub fn resize(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU, size: (u32, u32)) {
+        let downsample_size = Renderer::get_downsampled_size(size, self.downsample_factor);
+        self.size = size;
+        self.downsample_size = downsample_size;
+        self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, size.0, size.1);
+        self.downsampled_screen_bound_resources =
+            ScreenBoundResourcesGPU::new(&device, downsample_size.0, downsample_size.1);
+        self._create_bind_groups(device, scene_resources);
+    }
 
     pub fn render(
         &mut self,

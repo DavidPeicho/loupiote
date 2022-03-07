@@ -32,11 +32,6 @@ struct WindowApp {
     size: winit::dpi::PhysicalSize<u32>,
 }
 
-struct AppData {
-    device: wgpu::Device,
-    renderer: Renderer,
-}
-
 async fn setup() -> WindowApp {
     let event_loop = EventLoop::new();
     let mut builder = winit::window::WindowBuilder::new();
@@ -299,6 +294,28 @@ fn main() {
                 }
             }
 
+            event::Event::WindowEvent {
+                event:
+                    event::WindowEvent::Resized(size)
+                    | event::WindowEvent::ScaleFactorChanged {
+                        new_inner_size: &mut size,
+                        ..
+                    },
+                ..
+            } => {
+                let new_size = (size.width.max(1), size.height.max(1));
+                let device = device.lock().unwrap();
+                surface_config.width = new_size.0;
+                surface_config.height = new_size.1;
+                surface.configure(&device, &surface_config);
+                renderer
+                    .lock()
+                    .unwrap()
+                    .resize(&device, &scene_resources_gpu, new_size);
+
+                println!("\tDimensions = {}x{}", new_size.0, new_size.1);
+            }
+
             winit::event::Event::DeviceEvent { event, .. } => {
                 match event {
                     event::DeviceEvent::MouseMotion { delta } => {
@@ -357,12 +374,12 @@ fn main() {
                     event::WindowEvent::CloseRequested => {
                         *control_flow = winit::event_loop::ControlFlow::Exit;
                     }
-                    event::WindowEvent::MouseInput { button, state, .. } => {
+                    // event::WindowEvent::MouseInput { button, state, .. } => {
 
-                        // if *button == winit::event::MouseButton::Right {
-                        //     self.movement_locked = *state == ElementState::Released;
-                        // }
-                    }
+                    //     // if *button == winit::event::MouseButton::Right {
+                    //     //     self.movement_locked = *state == ElementState::Released;
+                    //     // }
+                    // }
                     _ => {}
                 }
             }
@@ -387,7 +404,7 @@ fn main() {
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
                 let mut renderer = renderer.lock().unwrap();
-                let mut device = device.lock().unwrap();
+                let device = device.lock().unwrap();
                 renderer.update_camera(&queue, camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
                 let encoder = renderer.render(&device, &view, &queue);

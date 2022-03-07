@@ -1,5 +1,3 @@
-use gltf::Camera;
-
 #[enumflags2::bitflags]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
