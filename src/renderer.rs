@@ -5,6 +5,7 @@ use albedo_rtx::passes::{
     ShadingPassDescriptor,
 };
 use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
+use gltf::Camera;
 
 use crate::scene::SceneGPU;
 
@@ -124,6 +125,7 @@ pub struct Renderer {
     screen_bound_resources: ScreenBoundResourcesGPU,
     downsampled_screen_bound_resources: ScreenBoundResourcesGPU,
 
+    camera: CameraGPU,
     camera_uniforms: UniformBuffer<CameraGPU>,
     global_uniforms: GlobalUniformsGPU,
     global_uniforms_buffer: UniformBuffer<GlobalUniformsGPU>,
@@ -157,6 +159,7 @@ impl Renderer {
                 (size.0 as f32 * downsample_factor) as u32,
                 (size.1 as f32 * downsample_factor) as u32,
             ),
+            camera: Default::default(),
             camera_uniforms: UniformBuffer::new(&device),
             global_uniforms: GlobalUniformsGPU::new(),
             global_uniforms_buffer: UniformBuffer::new(&device),
@@ -198,20 +201,13 @@ impl Renderer {
 
     pub fn update_camera(
         &mut self,
-        queue: &wgpu::Queue,
         origin: glam::Vec3,
         right: glam::Vec3,
         up: glam::Vec3,
     ) {
-        self.camera_uniforms.update(
-            &queue,
-            &CameraGPU {
-                origin,
-                right,
-                up,
-                ..Default::default()
-            },
-        );
+        self.camera.origin = origin;
+        self.camera.right = right;
+        self.camera.up = up;
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU, size: (u32, u32)) {
@@ -240,22 +236,26 @@ impl Renderer {
 
         let mut nb_bounces = STATIC_NUM_BOUNCES;
         let mut bindgroups = &self.fullscreen_bindgroups;
-        let mut dispatch_size = (self.size.0, self.size.1, 1);
+        let mut size = self.size;
         if !self.accumulate {
             nb_bounces = MOVING_NUM_BOUNCES;
             self.global_uniforms.frame_count = 1;
             bindgroups = &self.downsample_bindgroups;
-            let size = self.get_downsampled_size();
-            dispatch_size = (size.0, size.1, 1);
+            size = self.get_downsampled_size();
         }
         if !self.accumulate_last_frame && self.accumulate {
             self.global_uniforms.frame_count = 1
         }
+
         self.global_uniforms_buffer
             .update(&queue, &self.global_uniforms);
 
+        self.camera.dimensions = [ size.0, size.1 ];
+        self.camera_uniforms.update(&queue, &self.camera);
+
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let dispatch_size = (size.0, size.1, 1);
 
         // Step 1:
         //

@@ -414,7 +414,7 @@ fn main() {
 
                 let mut renderer = renderer.lock().unwrap();
                 let device = device.lock().unwrap();
-                renderer.update_camera(&queue, camera_controller.origin, camera_right, camera_up);
+                renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
                 let encoder = renderer.render(&device, &view, &queue);
                 queue.submit(Some(encoder.finish()));
