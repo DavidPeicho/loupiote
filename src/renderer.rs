@@ -136,7 +136,6 @@ pub struct Renderer {
     linear_sampler: wgpu::Sampler,
 
     size: (u32, u32),
-    downsample_size: (u32, u32),
 
     pub downsample_factor: f32,
     accumulate_last_frame: bool,
@@ -144,12 +143,6 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    fn get_downsampled_size(size: (u32, u32), factor: f32) -> (u32, u32) {
-        let w = size.0 as f32;
-        let h = size.1 as f32;
-        ((w * factor) as u32, (h * factor) as u32)
-    }
-
     pub fn new(
         device: &wgpu::Device,
         size: (u32, u32),
@@ -157,13 +150,12 @@ impl Renderer {
         scene_resources: &SceneGPU,
     ) -> Self {
         let downsample_factor = 0.25;
-        let downsample_size = Renderer::get_downsampled_size(size, downsample_factor);
         let mut renderer = Renderer {
             screen_bound_resources: ScreenBoundResourcesGPU::new(&device, size.0, size.1),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
                 &device,
-                downsample_size.0,
-                downsample_size.1,
+                (size.0 as f32 * downsample_factor) as u32,
+                (size.1 as f32 * downsample_factor) as u32,
             ),
             camera_uniforms: UniformBuffer::new(&device),
             global_uniforms: GlobalUniformsGPU::new(),
@@ -196,7 +188,6 @@ impl Renderer {
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
             size,
-            downsample_size,
             downsample_factor,
             accumulate: true,
             accumulate_last_frame: false,
@@ -224,9 +215,8 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU, size: (u32, u32)) {
-        let downsample_size = Renderer::get_downsampled_size(size, self.downsample_factor);
+        let downsample_size = self.get_downsampled_size();
         self.size = size;
-        self.downsample_size = downsample_size;
         self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, size.0, size.1);
         self.downsampled_screen_bound_resources =
             ScreenBoundResourcesGPU::new(&device, downsample_size.0, downsample_size.1);
@@ -255,7 +245,8 @@ impl Renderer {
             nb_bounces = MOVING_NUM_BOUNCES;
             self.global_uniforms.frame_count = 1;
             bindgroups = &self.downsample_bindgroups;
-            dispatch_size = (self.downsample_size.0, self.downsample_size.1, 1);
+            let size = self.get_downsampled_size();
+            dispatch_size = (size.0, size.1, 1);
         }
         if !self.accumulate_last_frame && self.accumulate {
             self.global_uniforms.frame_count = 1
@@ -310,6 +301,19 @@ impl Renderer {
         self.accumulate_last_frame = self.accumulate;
 
         encoder
+    }
+
+    pub fn get_size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    pub fn get_downsampled_size(&self) -> (u32, u32) {
+        let w = self.size.0 as f32;
+        let h = self.size.1 as f32;
+        (
+            (w * self.downsample_factor) as u32,
+            (h * self.downsample_factor) as u32,
+        )
     }
 
     fn _create_bind_groups(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU) {

@@ -135,9 +135,6 @@ fn main() {
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
 
-    println!("➡️  Info\n");
-    println!("\tDimensions = {}x{}", size.width, size.height);
-
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -265,6 +262,18 @@ fn main() {
 
     let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     watch_shading_shader(&mut hotwatch, &device, &renderer);
+
+    {
+        let renderer = renderer.lock().unwrap();
+        let size = renderer.get_size();
+        let downsampled_size = renderer.get_downsampled_size();
+        println!("➡️  Info\n");
+        println!("\tDimension = {}x{}", size.0, size.1);
+        println!(
+            "\tDownsample Dimension = {}x{}",
+            downsampled_size.0, downsampled_size.1
+        );
+    }
 
     event_loop.run(move |event, _, control_flow| {
         match event {
