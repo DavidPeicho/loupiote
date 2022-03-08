@@ -61,6 +61,7 @@ async fn setup() -> WindowApp {
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
+        max_storage_buffer_binding_size: 256 * 1024 * 1024,
         ..wgpu::Limits::default()
     };
     let trace_dir = std::env::var("WGPU_TRACE");
@@ -189,6 +190,7 @@ fn main() {
         glam::Vec3::new(0.0, 0.0, -1.0),
     );
     camera_controller.move_speed_factor = 0.15;
+    camera_controller.rotation_enabled = false;
 
     // Per-screen resolution resources, including:
     //  * Rays
@@ -264,10 +266,12 @@ fn main() {
     watch_shading_shader(&mut hotwatch, &device, &renderer);
 
     {
+        let adapter_info = adapter.get_info();
         let renderer = renderer.lock().unwrap();
         let size = renderer.get_size();
         let downsampled_size = renderer.get_downsampled_size();
         println!("➡️  Info\n");
+        println!("\tAdapter Name = {}", adapter_info.name);
         println!("\tDimension = {}x{}", size.0, size.1);
         println!(
             "\tDownsample Dimension = {}x{}",
@@ -316,11 +320,11 @@ fn main() {
                 let device = device.lock().unwrap();
                 surface_config.width = new_size.0;
                 surface_config.height = new_size.1;
-                surface.configure(&device, &surface_config);
                 renderer
                     .lock()
                     .unwrap()
                     .resize(&device, &scene_resources_gpu, new_size);
+                surface.configure(&device, &surface_config);
 
                 println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
@@ -339,59 +343,52 @@ fn main() {
                 }
             }
 
-            event::Event::WindowEvent { event, .. } => {
-                match event {
-                    event::WindowEvent::KeyboardInput {
-                        input:
-                            event::KeyboardInput {
-                                virtual_keycode: Some(virtual_keycode),
-                                state,
-                                ..
-                            },
-                        ..
-                    } => {
-                        match virtual_keycode {
-                            event::VirtualKeyCode::Escape => {
-                                *control_flow = winit::event_loop::ControlFlow::Exit
-                            }
-                            _ => (),
-                        };
-                        let direction = match virtual_keycode {
-                            event::VirtualKeyCode::S | event::VirtualKeyCode::Down => {
-                                CameraMoveCommand::Backward
-                            }
-                            event::VirtualKeyCode::A | event::VirtualKeyCode::Left => {
-                                CameraMoveCommand::Left
-                            }
-                            event::VirtualKeyCode::D | event::VirtualKeyCode::Right => {
-                                CameraMoveCommand::Right
-                            }
-                            event::VirtualKeyCode::W | event::VirtualKeyCode::Up => {
-                                CameraMoveCommand::Forward
-                            }
-                            _ => CameraMoveCommand::None,
-                        };
-                        match state {
-                            event::ElementState::Pressed => {
-                                camera_controller.set_command(direction)
-                            }
-                            event::ElementState::Released => {
-                                camera_controller.unset_command(direction)
-                            }
-                        };
-                    }
-                    event::WindowEvent::CloseRequested => {
-                        *control_flow = winit::event_loop::ControlFlow::Exit;
-                    }
-                    // event::WindowEvent::MouseInput { button, state, .. } => {
-
-                    //     // if *button == winit::event::MouseButton::Right {
-                    //     //     self.movement_locked = *state == ElementState::Released;
-                    //     // }
-                    // }
-                    _ => {}
+            event::Event::WindowEvent { event, .. } => match event {
+                event::WindowEvent::KeyboardInput {
+                    input:
+                        event::KeyboardInput {
+                            virtual_keycode: Some(virtual_keycode),
+                            state,
+                            ..
+                        },
+                    ..
+                } => {
+                    match virtual_keycode {
+                        event::VirtualKeyCode::Escape => {
+                            *control_flow = winit::event_loop::ControlFlow::Exit
+                        }
+                        _ => (),
+                    };
+                    let direction = match virtual_keycode {
+                        event::VirtualKeyCode::S | event::VirtualKeyCode::Down => {
+                            CameraMoveCommand::Backward
+                        }
+                        event::VirtualKeyCode::A | event::VirtualKeyCode::Left => {
+                            CameraMoveCommand::Left
+                        }
+                        event::VirtualKeyCode::D | event::VirtualKeyCode::Right => {
+                            CameraMoveCommand::Right
+                        }
+                        event::VirtualKeyCode::W | event::VirtualKeyCode::Up => {
+                            CameraMoveCommand::Forward
+                        }
+                        _ => CameraMoveCommand::None,
+                    };
+                    match state {
+                        event::ElementState::Pressed => camera_controller.set_command(direction),
+                        event::ElementState::Released => camera_controller.unset_command(direction),
+                    };
                 }
-            }
+                event::WindowEvent::CloseRequested => {
+                    *control_flow = winit::event_loop::ControlFlow::Exit;
+                }
+                event::WindowEvent::MouseInput { button, state, .. } => {
+                    if button == winit::event::MouseButton::Left {
+                        camera_controller.rotation_enabled = state == event::ElementState::Pressed;
+                    }
+                }
+                _ => {}
+            },
 
             event::Event::RedrawRequested(_) => {
                 let frame = surface

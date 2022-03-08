@@ -20,6 +20,9 @@ pub struct CameraController {
     pub origin: glam::Vec3,
     pub direction: glam::Vec3,
     pub commands: enumflags2::BitFlags<CameraMoveCommand>,
+
+    pub rotation_enabled: bool,
+    pub translation_enabled: bool,
 }
 
 impl CameraController {
@@ -30,6 +33,8 @@ impl CameraController {
             rot_damping_factor: 0.5,
             rot_speed_factor: glam::Vec2::new(1.0, 1.0),
             direction: glam::Vec3::new(0.0, 0.0, -1.0),
+            rotation_enabled: true,
+            translation_enabled: true,
             ..Default::default()
         }
     }
@@ -42,12 +47,16 @@ impl CameraController {
     }
 
     pub fn rotate(&mut self, x: f32, y: f32) {
-        self.rot_velocity.x += x;
-        self.rot_velocity.y += y;
+        if self.rotation_enabled {
+            self.rot_velocity.x += x;
+            self.rot_velocity.y += y;
+        }
     }
 
     pub fn set_command(&mut self, cmd: CameraMoveCommand) {
-        self.commands.insert(enumflags2::BitFlags::from(cmd));
+        if self.translation_enabled {
+            self.commands.insert(enumflags2::BitFlags::from(cmd));
+        }
     }
 
     pub fn unset_command(&mut self, cmd: CameraMoveCommand) {

@@ -5,7 +5,6 @@ use albedo_rtx::passes::{
     ShadingPassDescriptor,
 };
 use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
-use gltf::Camera;
 
 use crate::scene::SceneGPU;
 
@@ -16,12 +15,12 @@ struct ScreenBoundResourcesGPU {
 }
 
 impl ScreenBoundResourcesGPU {
-    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+    fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
         let render_target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Render Target"),
             size: wgpu::Extent3d {
-                width: width,
-                height: height,
+                width: size.0,
+                height: size.1,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -30,7 +29,7 @@ impl ScreenBoundResourcesGPU {
             format: wgpu::TextureFormat::Rgba32Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
-        let pixel_count = (width * height) as usize;
+        let pixel_count = (size.0 * size.0) as usize;
         ScreenBoundResourcesGPU {
             ray_buffer: GPUBuffer::new_with_usage_count(
                 &device,
@@ -152,12 +151,15 @@ impl Renderer {
         scene_resources: &SceneGPU,
     ) -> Self {
         let downsample_factor = 0.25;
+        let downsampled_size = (
+            (size.0 as f32 * downsample_factor) as u32,
+            (size.1 as f32 * downsample_factor) as u32,
+        );
         let mut renderer = Renderer {
-            screen_bound_resources: ScreenBoundResourcesGPU::new(&device, size.0, size.1),
+            screen_bound_resources: ScreenBoundResourcesGPU::new(&device, size),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
                 &device,
-                (size.0 as f32 * downsample_factor) as u32,
-                (size.1 as f32 * downsample_factor) as u32,
+                downsampled_size,
             ),
             camera: Default::default(),
             camera_uniforms: UniformBuffer::new(&device),
@@ -199,23 +201,18 @@ impl Renderer {
         renderer
     }
 
-    pub fn update_camera(
-        &mut self,
-        origin: glam::Vec3,
-        right: glam::Vec3,
-        up: glam::Vec3,
-    ) {
+    pub fn update_camera(&mut self, origin: glam::Vec3, right: glam::Vec3, up: glam::Vec3) {
         self.camera.origin = origin;
         self.camera.right = right;
         self.camera.up = up;
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU, size: (u32, u32)) {
-        let downsample_size = self.get_downsampled_size();
         self.size = size;
-        self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, size.0, size.1);
+        let downsample_size = self.get_downsampled_size();
+        self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, self.size);
         self.downsampled_screen_bound_resources =
-            ScreenBoundResourcesGPU::new(&device, downsample_size.0, downsample_size.1);
+            ScreenBoundResourcesGPU::new(&device, downsample_size);
         self._create_bind_groups(device, scene_resources);
     }
 
@@ -250,7 +247,7 @@ impl Renderer {
         self.global_uniforms_buffer
             .update(&queue, &self.global_uniforms);
 
-        self.camera.dimensions = [ size.0, size.1 ];
+        self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &self.camera);
 
         let mut encoder =
