@@ -4,6 +4,8 @@ Interactive Pathtracer written in Rust and based on [WebGPU](https://github.com/
 
 This repository is based on the [Albedo](https://github.com/albedo-engine/albedo) and more precisely the [albedo_rtx](https://github.com/albedo-engine/albedo/tree/main/crates/albedo_rtx) crate.
 
+![Initial Result with Albedo](screenshots/initial_result.gif)
+
 ## Features
 
 * BVH
