@@ -214,6 +214,7 @@ impl Renderer {
         self.downsampled_screen_bound_resources =
             ScreenBoundResourcesGPU::new(&device, downsample_size);
         self._create_bind_groups(device, scene_resources);
+        self.global_uniforms.frame_count = 1;
     }
 
     pub fn render(
@@ -267,7 +268,11 @@ impl Renderer {
         // Step 2:
         //
         // Alternate between intersection & shading.
+        let before_count = self.global_uniforms.frame_count;
         for _ in 0..nb_bounces {
+            self.global_uniforms.frame_count += 1;
+            self.global_uniforms_buffer
+            .update(&queue, &self.global_uniforms);
             ComputePass::new(
                 &mut encoder,
                 &self.passes.intersection,
@@ -281,6 +286,9 @@ impl Renderer {
             )
             .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
         }
+        self.global_uniforms.frame_count = before_count;
+        self.global_uniforms_buffer
+        .update(&queue, &self.global_uniforms);
 
         // Accumulation.
         ComputePass::new(
