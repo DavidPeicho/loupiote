@@ -6,6 +6,11 @@ This repository is based on the [Albedo](https://github.com/albedo-engine/albedo
 
 ![Initial Result with Albedo](screenshots/initial_result.gif)
 
+## Features
+
+* BVH
+* glTF loader
+
 ## Build
 
 🚧 Albedo Pathtracer is a work-in-progress and might be unstable 🚧
@@ -19,10 +24,12 @@ albedo_backend = { path = "[PATH_TO_ALBEDO]/crates/albedo_backend", version = "0
 albedo_rtx = { path = "[PATH_TO_ALBEDO]/crates/albedo_rtx", version = "0.0.1" }
 ```
 
-## Features
+## Usage
 
-* BVH
-* glTF loader
+### Camera
+
+* WASD to fly around
+* Left clikc + mouse move to rotate around
 
 ## Coming Next
 
