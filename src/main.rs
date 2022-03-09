@@ -90,35 +90,35 @@ async fn setup() -> WindowApp {
     }
 }
 
-fn watch_shading_shader(
-    hotwatch: &mut hotwatch::Hotwatch,
-    device_mutex: &Arc<Mutex<wgpu::Device>>,
-    renderer_mutex: &Arc<Mutex<Renderer>>,
-) {
-    const PATH: &str = "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv";
+// fn watch_shading_shader(
+//     hotwatch: &mut hotwatch::Hotwatch,
+//     device_mutex: &Arc<Mutex<wgpu::Device>>,
+//     renderer_mutex: &Arc<Mutex<Renderer>>,
+// ) {
+//     const PATH: &str = "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv";
 
-    let device = device_mutex.clone();
-    let renderer = renderer_mutex.clone();
-    hotwatch
-        .watch(PATH, move |event: hotwatch::Event| {
-            if let hotwatch::Event::Write(_) = event {
-                let file_data = utils::load_file(PATH);
-                let desc = wgpu::ShaderModuleDescriptor {
-                    label: Some("Shading"),
-                    source: wgpu::util::make_spirv(&file_data[..]),
-                };
-                println!("[ SHADER COMPILATION ]: updating '{}'...", PATH);
-                renderer
-                    .lock()
-                    .unwrap()
-                    .passes
-                    .shading
-                    .set_shader(&device.lock().unwrap(), &desc);
-                println!("[ SHADER COMPILATION ]: '{}' updated!", PATH);
-            }
-        })
-        .expect("failed to watch file!");
-}
+//     let device = device_mutex.clone();
+//     let renderer = renderer_mutex.clone();
+//     hotwatch
+//         .watch(PATH, move |event: hotwatch::Event| {
+//             if let hotwatch::Event::Write(_) = event {
+//                 let file_data = utils::load_file(PATH);
+//                 let desc = wgpu::ShaderModuleDescriptor {
+//                     label: Some("Shading"),
+//                     source: wgpu::util::make_spirv(&file_data[..]),
+//                 };
+//                 println!("[ SHADER COMPILATION ]: updating '{}'...", PATH);
+//                 renderer
+//                     .lock()
+//                     .unwrap()
+//                     .passes
+//                     .shading
+//                     .set_shader(&device.lock().unwrap(), &desc);
+//                 println!("[ SHADER COMPILATION ]: '{}' updated!", PATH);
+//             }
+//         })
+//         .expect("failed to watch file!");
+// }
 
 fn main() {
     let WindowApp {
@@ -262,8 +262,8 @@ fn main() {
     )));
     let device = Arc::new(Mutex::new(device));
 
-    let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
-    watch_shading_shader(&mut hotwatch, &device, &renderer);
+    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
+    // watch_shading_shader(&mut hotwatch, &device, &renderer);
 
     {
         let adapter_info = adapter.get_info();
