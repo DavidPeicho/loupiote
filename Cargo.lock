@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "albedo_backend"
-version = "0.0.1"
+version = "0.0.1-beta.0"
 dependencies = [
  "bytemuck",
  "wgpu",
@@ -46,14 +46,14 @@ dependencies = [
 
 [[package]]
 name = "albedo_math"
-version = "0.0.1"
+version = "0.0.1-beta.0"
 dependencies = [
  "glam",
 ]
 
 [[package]]
 name = "albedo_rtx"
-version = "0.0.1"
+version = "0.0.1-beta.0"
 dependencies = [
  "albedo_backend",
  "albedo_math",
