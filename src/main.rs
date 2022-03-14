@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use albedo_rtx::mesh::Mesh;
-use albedo_rtx::renderer::resources::LightGPU;
+use albedo_rtx::renderer::resources::{LightGPU};
 use winit::{
     event::{self},
     event_loop::EventLoop,
@@ -11,6 +11,8 @@ mod utils;
 
 mod gltf_loader;
 use gltf_loader::load_gltf;
+
+mod gui;
 
 mod scene;
 use scene::SceneGPU;
@@ -148,9 +150,14 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    let scene = load_gltf(&"./assets/cornell-box.glb");
+    //// Create GUI.
+
+    let mut gui = gui::GUI::new(&device, &surface_config);
+
+    // let scene = load_gltf(&"./assets/cornell-box.glb");
     // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
-    // let scene = load_gltf(&"./assets/suzanne.glb");
+    // let mut scene = load_gltf(&"./assets/suzanne.glb");
+    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb");
     // let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
@@ -326,7 +333,7 @@ fn main() {
                     .resize(&device, &scene_resources_gpu, new_size);
                 surface.configure(&device, &surface_config);
 
-                println!("\tDimensions = {}x{}", new_size.0, new_size.1);
+                // println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => {
@@ -408,12 +415,24 @@ fn main() {
                     (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
+                gui.update(delta as f64);
 
                 let mut renderer = renderer.lock().unwrap();
                 let device = device.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
-                let encoder = renderer.render(&device, &view, &queue);
+                let mut encoder = renderer.render(&device, &view, &queue);
+
+                // Render GUI.
+                gui.render(
+                    &window,
+                    &device,
+                    &queue,
+                    &surface_config,
+                    &mut encoder,
+                    &view
+                );
+
                 queue.submit(Some(encoder.finish()));
                 frame.present();
             }

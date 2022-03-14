@@ -64,7 +64,7 @@ impl CameraController {
     }
 
     pub fn update(&mut self, delta: f32) -> (glam::Vec3, glam::Vec3) {
-        let mut right = self.direction.cross(glam::Vec3::unit_y()).normalize();
+        let mut right = self.direction.cross(glam::Vec3::Y).normalize();
         let mut up = right.cross(self.direction).normalize();
 
         let rot_velocity = self.rot_velocity * self.rot_speed_factor * delta;
@@ -72,7 +72,7 @@ impl CameraController {
             * glam::Quat::from_axis_angle(right, -rot_velocity.y);
 
         self.direction = (rot * self.direction).normalize();
-        right = self.direction.cross(glam::Vec3::unit_y()).normalize();
+        right = self.direction.cross(glam::Vec3::Y).normalize();
         up = right.cross(self.direction).normalize();
 
         if self.commands.contains(CameraMoveCommand::Left) {
