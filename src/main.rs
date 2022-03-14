@@ -150,10 +150,6 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    //// Create GUI.
-
-    let mut gui = gui::GUI::new(&device, &surface_config);
-
     // let scene = load_gltf(&"./assets/cornell-box.glb");
     // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
     // let mut scene = load_gltf(&"./assets/suzanne.glb");
@@ -261,6 +257,17 @@ fn main() {
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
+    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
+    // watch_shading_shader(&mut hotwatch, &device, &renderer);
+
+    ////
+    /// Create GUI.
+    ///
+
+    let mut gui = gui::GUI::new(&device, &surface_config);
+    gui.info_window_mut().set_meshes_count(scene.meshes.len());
+    gui.info_window_mut().set_bvh_nodes_count(scene.node_buffer.len());
+
     let renderer = Arc::new(Mutex::new(Renderer::new(
         &device,
         (size.width, size.height),
@@ -268,9 +275,6 @@ fn main() {
         &scene_resources_gpu,
     )));
     let device = Arc::new(Mutex::new(device));
-
-    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
-    // watch_shading_shader(&mut hotwatch, &device, &renderer);
 
     {
         let adapter_info = adapter.get_info();
@@ -287,6 +291,7 @@ fn main() {
     }
 
     event_loop.run(move |event, _, control_flow| {
+        gui.handle_event(&event);
         match event {
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -424,6 +429,7 @@ fn main() {
                 let mut encoder = renderer.render(&device, &view, &queue);
 
                 // Render GUI.
+                gui.info_window_mut().set_global_performance(duration.as_millis() as f64);
                 gui.render(
                     &window,
                     &device,
