@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use albedo_rtx::mesh::Mesh;
-use albedo_rtx::renderer::resources::{LightGPU};
+use albedo_rtx::renderer::resources::LightGPU;
 use winit::{
     event::{self},
     event_loop::EventLoop,
@@ -134,6 +134,8 @@ fn main() {
         size,
     } = pollster::block_on(setup());
 
+    let adapter_info = adapter.get_info();
+
     println!("\n============================================================");
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
@@ -260,13 +262,14 @@ fn main() {
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
 
-    ////
-    /// Create GUI.
-    ///
-
+    //
+    // Create GUI.
+    //
     let mut gui = gui::GUI::new(&device, &surface_config);
+    gui.info_window_mut().adapter_name = adapter_info.name;
     gui.info_window_mut().set_meshes_count(scene.meshes.len());
-    gui.info_window_mut().set_bvh_nodes_count(scene.node_buffer.len());
+    gui.info_window_mut()
+        .set_bvh_nodes_count(scene.node_buffer.len());
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
         &device,
@@ -277,12 +280,10 @@ fn main() {
     let device = Arc::new(Mutex::new(device));
 
     {
-        let adapter_info = adapter.get_info();
         let renderer = renderer.lock().unwrap();
         let size = renderer.get_size();
         let downsampled_size = renderer.get_downsampled_size();
         println!("➡️  Info\n");
-        println!("\tAdapter Name = {}", adapter_info.name);
         println!("\tDimension = {}x{}", size.0, size.1);
         println!(
             "\tDownsample Dimension = {}x{}",
@@ -420,7 +421,6 @@ fn main() {
                     (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
-                gui.update(delta as f64);
 
                 let mut renderer = renderer.lock().unwrap();
                 let device = device.lock().unwrap();
@@ -429,14 +429,16 @@ fn main() {
                 let mut encoder = renderer.render(&device, &view, &queue);
 
                 // Render GUI.
-                gui.info_window_mut().set_global_performance(duration.as_millis() as f64);
+                gui.info_window_mut()
+                    .set_global_performance(duration.as_millis() as f64);
                 gui.render(
                     &window,
                     &device,
                     &queue,
                     &surface_config,
                     &mut encoder,
-                    &view
+                    &view,
+                    delta as f64,
                 );
 
                 queue.submit(Some(encoder.finish()));

@@ -1,12 +1,9 @@
-use egui_winit_platform::{
-  Platform,
-  PlatformDescriptor
-};
+use egui_winit_platform::{Platform, PlatformDescriptor};
 
 mod views;
 
 mod info_window_gui;
-use info_window_gui::{InfoWindowGUI};
+use info_window_gui::InfoWindowGUI;
 
 pub struct GUI {
   platform: Platform,
@@ -16,11 +13,7 @@ pub struct GUI {
 }
 
 impl GUI {
-
-  pub fn new(
-    device: &wgpu::Device,
-    surface_config: &wgpu::SurfaceConfiguration
-  ) -> Self {
+  pub fn new(device: &wgpu::Device, surface_config: &wgpu::SurfaceConfiguration) -> Self {
     GUI {
       platform: Platform::new(PlatformDescriptor {
         physical_width: surface_config.width,
@@ -39,10 +32,6 @@ impl GUI {
     self.platform.handle_event(winit_event);
   }
 
-  pub fn update(&mut self, delta: f64) {
-    self.platform.update_time(delta);
-  }
-
   pub fn render(
     &mut self,
     window: &winit::window::Window,
@@ -50,8 +39,10 @@ impl GUI {
     queue: &wgpu::Queue,
     surface_config: &wgpu::SurfaceConfiguration,
     encoder: &mut wgpu::CommandEncoder,
-    view: &wgpu::TextureView
+    view: &wgpu::TextureView,
+    delta: f64,
   ) {
+    self.platform.update_time(delta);
     self.platform.begin_frame();
 
     let egui::FullOutput {
@@ -71,15 +62,18 @@ impl GUI {
 
     self.render_gui();
 
-    self.render_pass.add_textures(&device, &queue, &textures_delta).unwrap();
-    self.render_pass.update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
-    self.render_pass.execute(
-      encoder,
-      view,
-      &paint_jobs,
-      &screen_descriptor,
-      None
-    ).unwrap();
+    self
+      .render_pass
+      .add_textures(&device, &queue, &textures_delta)
+      .unwrap();
+    self
+      .render_pass
+      .update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
+    self
+      .render_pass
+      .execute(encoder, view, &paint_jobs, &screen_descriptor, None)
+      .unwrap();
+    self.render_pass.remove_textures(textures_delta).unwrap();
   }
 
   pub fn info_window_mut(&mut self) -> &mut InfoWindowGUI {
@@ -91,24 +85,29 @@ impl GUI {
     self.render_info_window();
   }
 
-  fn render_menu_bar(&self) {
+  fn render_menu_bar(&mut self) {
     use egui::*;
     TopBottomPanel::top("menu_bar").show(&self.platform.context(), |ui| {
       trace!(ui);
       menu::bar(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if ui.button("Organize windows").clicked() {
-                ui.ctx().memory().reset_areas();
-                ui.close_menu();
-            }
-            if ui
-                .button("Reset egui memory")
-                .on_hover_text("Forget scroll, positions, sizes etc")
-                .clicked()
-            {
-                *ui.ctx().memory() = Default::default();
-                ui.close_menu();
-            }
+          if ui.button("Organize windows").clicked() {
+            ui.ctx().memory().reset_areas();
+            ui.close_menu();
+          }
+          if ui
+            .button("Reset egui memory")
+            .on_hover_text("Forget scroll, positions, sizes etc")
+            .clicked()
+          {
+            *ui.ctx().memory() = Default::default();
+            ui.close_menu();
+          }
+        });
+        ui.menu_button("Windows", |ui| {
+          if ui.button("Information").clicked() {
+            self.info_window.open = true;
+          }
         });
       });
     });
@@ -117,5 +116,4 @@ impl GUI {
   fn render_info_window(&mut self) {
     self.info_window.render(&self.platform.context());
   }
-
 }
