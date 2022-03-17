@@ -12,6 +12,8 @@ mod utils;
 mod gltf_loader;
 use gltf_loader::load_gltf;
 
+mod gui;
+
 mod scene;
 use scene::SceneGPU;
 
@@ -132,6 +134,8 @@ fn main() {
         size,
     } = pollster::block_on(setup());
 
+    let adapter_info = adapter.get_info();
+
     println!("\n============================================================");
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
@@ -148,9 +152,10 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    let scene = load_gltf(&"./assets/cornell-box.glb");
+    // let scene = load_gltf(&"./assets/cornell-box.glb");
     // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
-    // let scene = load_gltf(&"./assets/suzanne.glb");
+    // let mut scene = load_gltf(&"./assets/suzanne.glb");
+    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb");
     // let scene = load_gltf(&"./assets/meetmat-head.glb");
 
     //// Scene Info
@@ -254,6 +259,18 @@ fn main() {
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
 
+    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
+    // watch_shading_shader(&mut hotwatch, &device, &renderer);
+
+    //
+    // Create GUI.
+    //
+    let mut gui = gui::GUI::new(&device, &surface_config);
+    gui.info_window_mut().adapter_name = adapter_info.name;
+    gui.info_window_mut().set_meshes_count(scene.meshes.len());
+    gui.info_window_mut()
+        .set_bvh_nodes_count(scene.node_buffer.len());
+
     let renderer = Arc::new(Mutex::new(Renderer::new(
         &device,
         (size.width, size.height),
@@ -262,16 +279,11 @@ fn main() {
     )));
     let device = Arc::new(Mutex::new(device));
 
-    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
-    // watch_shading_shader(&mut hotwatch, &device, &renderer);
-
     {
-        let adapter_info = adapter.get_info();
         let renderer = renderer.lock().unwrap();
         let size = renderer.get_size();
         let downsampled_size = renderer.get_downsampled_size();
         println!("➡️  Info\n");
-        println!("\tAdapter Name = {}", adapter_info.name);
         println!("\tDimension = {}x{}", size.0, size.1);
         println!(
             "\tDownsample Dimension = {}x{}",
@@ -280,6 +292,8 @@ fn main() {
     }
 
     event_loop.run(move |event, _, control_flow| {
+        let event_captured = gui.handle_event(&event);
+        println!("{}", event_captured);
         match event {
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -326,22 +340,20 @@ fn main() {
                     .resize(&device, &scene_resources_gpu, new_size);
                 surface.configure(&device, &surface_config);
 
-                println!("\tDimensions = {}x{}", new_size.0, new_size.1);
+                // println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
 
-            winit::event::Event::DeviceEvent { event, .. } => {
-                match event {
-                    event::DeviceEvent::MouseMotion { delta } => {
-                        // self.mouse_delta = (self.mouse_delta.0 + delta.0, self.mouse_delta.1 + delta.1);
-                        // println!("Velocity = {}, {}", (delta.0 / (size.width as f64)) as f32, (delta.0 / (size.height as f64)) as f32);
+            winit::event::Event::DeviceEvent { event, .. } => match event {
+                event::DeviceEvent::MouseMotion { delta } => {
+                    if !event_captured {
                         camera_controller.rotate(
                             (delta.0 / (size.width as f64 * 0.5)) as f32,
                             (delta.1 / (size.height as f64 * 0.5)) as f32,
                         );
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
 
             event::Event::WindowEvent { event, .. } => match event {
                 event::WindowEvent::KeyboardInput {
@@ -374,10 +386,16 @@ fn main() {
                         }
                         _ => CameraMoveCommand::None,
                     };
-                    match state {
-                        event::ElementState::Pressed => camera_controller.set_command(direction),
-                        event::ElementState::Released => camera_controller.unset_command(direction),
-                    };
+                    if !event_captured {
+                        match state {
+                            event::ElementState::Pressed => {
+                                camera_controller.set_command(direction)
+                            }
+                            event::ElementState::Released => {
+                                camera_controller.unset_command(direction)
+                            }
+                        };
+                    }
                 }
                 event::WindowEvent::CloseRequested => {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
@@ -413,8 +431,27 @@ fn main() {
                 let device = device.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
+
                 let encoder = renderer.render(&device, &view, &queue);
-                queue.submit(Some(encoder.finish()));
+
+                let mut encoder_gui =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("encoder-gui"),
+                    });
+                // Render GUI.
+                gui.info_window_mut()
+                    .set_global_performance(duration.as_millis() as f64);
+                gui.render(
+                    &window,
+                    &device,
+                    &queue,
+                    &surface_config,
+                    &mut encoder_gui,
+                    &view,
+                    delta as f64,
+                );
+
+                queue.submit([encoder.finish(), encoder_gui.finish()]);
                 frame.present();
             }
             _ => {}
