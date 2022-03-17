@@ -28,8 +28,9 @@ impl GUI {
     }
   }
 
-  pub fn handle_event<T>(&mut self, winit_event: &winit::event::Event<T>) {
+  pub fn handle_event<T>(&mut self, winit_event: &winit::event::Event<T>) -> bool {
     self.platform.handle_event(winit_event);
+    self.platform.captures_event(winit_event)
   }
 
   pub fn render(

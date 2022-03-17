@@ -292,7 +292,8 @@ fn main() {
     }
 
     event_loop.run(move |event, _, control_flow| {
-        gui.handle_event(&event);
+        let event_captured = gui.handle_event(&event);
+        println!("{}", event_captured);
         match event {
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -342,19 +343,17 @@ fn main() {
                 // println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
 
-            winit::event::Event::DeviceEvent { event, .. } => {
-                match event {
-                    event::DeviceEvent::MouseMotion { delta } => {
-                        // self.mouse_delta = (self.mouse_delta.0 + delta.0, self.mouse_delta.1 + delta.1);
-                        // println!("Velocity = {}, {}", (delta.0 / (size.width as f64)) as f32, (delta.0 / (size.height as f64)) as f32);
+            winit::event::Event::DeviceEvent { event, .. } => match event {
+                event::DeviceEvent::MouseMotion { delta } => {
+                    if !event_captured {
                         camera_controller.rotate(
                             (delta.0 / (size.width as f64 * 0.5)) as f32,
                             (delta.1 / (size.height as f64 * 0.5)) as f32,
                         );
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
 
             event::Event::WindowEvent { event, .. } => match event {
                 event::WindowEvent::KeyboardInput {
@@ -387,10 +386,16 @@ fn main() {
                         }
                         _ => CameraMoveCommand::None,
                     };
-                    match state {
-                        event::ElementState::Pressed => camera_controller.set_command(direction),
-                        event::ElementState::Released => camera_controller.unset_command(direction),
-                    };
+                    if !event_captured {
+                        match state {
+                            event::ElementState::Pressed => {
+                                camera_controller.set_command(direction)
+                            }
+                            event::ElementState::Released => {
+                                camera_controller.unset_command(direction)
+                            }
+                        };
+                    }
                 }
                 event::WindowEvent::CloseRequested => {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
@@ -426,8 +431,13 @@ fn main() {
                 let device = device.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
-                let mut encoder = renderer.render(&device, &view, &queue);
 
+                let encoder = renderer.render(&device, &view, &queue);
+
+                let mut encoder_gui =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("encoder-gui"),
+                    });
                 // Render GUI.
                 gui.info_window_mut()
                     .set_global_performance(duration.as_millis() as f64);
@@ -436,12 +446,12 @@ fn main() {
                     &device,
                     &queue,
                     &surface_config,
-                    &mut encoder,
+                    &mut encoder_gui,
                     &view,
                     delta as f64,
                 );
 
-                queue.submit(Some(encoder.finish()));
+                queue.submit([encoder.finish(), encoder_gui.finish()]);
                 frame.present();
             }
             _ => {}
