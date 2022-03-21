@@ -258,6 +258,7 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_update_inst = std::time::Instant::now();
     let mut last_time = std::time::Instant::now();
+    let start_time = std::time::Instant::now();
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
@@ -265,7 +266,7 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(&device, &surface_config);
+    let mut gui = gui::GUI::new(&device, &window, &surface_config);
     gui.info_window_mut().adapter_name = adapter_info.name;
     gui.info_window_mut().set_meshes_count(scene.meshes.len());
     gui.info_window_mut()
@@ -293,8 +294,10 @@ fn main() {
 
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
-        println!("{}", event_captured);
         match event {
+            event::Event::MainEventsCleared => {
+                window.request_redraw();
+            }
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -316,8 +319,6 @@ fn main() {
                             std::time::Instant::now() + target_frametime - time_since_last_frame,
                         );
                     }
-
-                    // spawner.run_until_stalled();
                 }
             }
 
@@ -448,7 +449,7 @@ fn main() {
                     &surface_config,
                     &mut encoder_gui,
                     &view,
-                    delta as f64,
+                    start_time.elapsed().as_secs_f64()
                 );
 
                 queue.submit([encoder.finish(), encoder_gui.finish()]);

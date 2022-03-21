@@ -14,7 +14,9 @@ wgpu = "0.12.0"
 glam = "0.20.2"
 gltf = "0.15.2"
 pollster = "0.2"
-egui = "0.17"
+egui = { version = "0.17.0", default-features = false, features = [
+  "single_threaded",
+] }
 egui_wgpu_backend = "0.17"
 egui_winit_platform = "0.14"
 albedo_backend = { path = "../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
