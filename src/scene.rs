@@ -1,9 +1,22 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::{GPUBuffer, UniformBuffer};
+use albedo_rtx::accel;
+use albedo_rtx::renderer;
 use albedo_rtx::renderer::resources::{
     BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, SceneSettingsGPU, VertexGPU,
 };
+
+pub struct Scene<T: albedo_rtx::mesh::Mesh> {
+    pub meshes: Vec<T>,
+    pub bvhs: Vec<accel::BVH>,
+    pub instances: Vec<renderer::resources::InstanceGPU>,
+    pub materials: Vec<renderer::resources::MaterialGPU>,
+    pub node_buffer: Vec<renderer::resources::BVHNodeGPU>,
+    pub vertex_buffer: Vec<renderer::resources::VertexGPU>,
+    pub index_buffer: Vec<u32>,
+    pub lights: Vec<renderer::resources::LightGPU>,
+}
 
 pub struct SceneGPU {
     pub instance_buffer: GPUBuffer<InstanceGPU>,
@@ -38,6 +51,37 @@ impl SceneGPU {
             probe_texture: None,
             probe_texture_view: None,
         }
+    }
+
+    pub fn new_from_scene<T>(
+        scene: &Scene<T>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> SceneGPU
+    where
+        T: albedo_rtx::mesh::Mesh,
+    {
+        let mut resources = SceneGPU::new(
+            &device,
+            &scene.instances,
+            &scene.materials,
+            &scene.node_buffer,
+            &scene.index_buffer,
+            &scene.vertex_buffer,
+            &scene.lights,
+        );
+        resources.instance_buffer.update(&queue, &scene.instances);
+        resources.materials_buffer.update(&queue, &scene.materials);
+        resources.bvh_buffer.update(&queue, &scene.node_buffer);
+        resources.index_buffer.update(&queue, &scene.index_buffer);
+        resources.vertex_buffer.update(&queue, &scene.vertex_buffer);
+        resources.light_buffer.update(&queue, &scene.lights);
+        resources.update_globals(
+            queue,
+            scene.instances.len() as u32,
+            scene.lights.len() as u32,
+        );
+        resources
     }
 
     pub fn update_globals(&mut self, queue: &wgpu::Queue, nb_instances: u32, nb_lights: u32) {

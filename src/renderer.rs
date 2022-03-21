@@ -197,7 +197,7 @@ impl Renderer {
             accumulate: true,
             accumulate_last_frame: false,
         };
-        renderer._create_bind_groups(device, scene_resources);
+        renderer.set_resources(device, scene_resources);
         renderer
     }
 
@@ -213,8 +213,7 @@ impl Renderer {
         self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, self.size);
         self.downsampled_screen_bound_resources =
             ScreenBoundResourcesGPU::new(&device, downsample_size);
-        self._create_bind_groups(device, scene_resources);
-        self.global_uniforms.frame_count = 1;
+        self.set_resources(device, scene_resources);
     }
 
     pub fn render(
@@ -272,7 +271,7 @@ impl Renderer {
         for _ in 0..nb_bounces {
             self.global_uniforms.frame_count += 1;
             self.global_uniforms_buffer
-            .update(&queue, &self.global_uniforms);
+                .update(&queue, &self.global_uniforms);
             ComputePass::new(
                 &mut encoder,
                 &self.passes.intersection,
@@ -288,7 +287,7 @@ impl Renderer {
         }
         self.global_uniforms.frame_count = before_count;
         self.global_uniforms_buffer
-        .update(&queue, &self.global_uniforms);
+            .update(&queue, &self.global_uniforms);
 
         // Accumulation.
         ComputePass::new(
@@ -321,7 +320,7 @@ impl Renderer {
         )
     }
 
-    fn _create_bind_groups(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU) {
+    pub fn set_resources(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             &device,
             &self.screen_bound_resources,
@@ -350,5 +349,6 @@ impl Renderer {
             &self.passes.accumulation,
             &self.passes.blit,
         ));
+        self.global_uniforms.frame_count = 1;
     }
 }

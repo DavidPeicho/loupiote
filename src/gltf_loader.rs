@@ -6,6 +6,9 @@ use albedo_rtx::{
 use gltf::{self};
 use std::path::Path;
 
+use crate::errors::Error;
+use crate::scene::Scene;
+
 pub struct ProxyMesh {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
@@ -49,21 +52,16 @@ impl Mesh for ProxyMesh {
     }
 }
 
-pub struct Scene {
-    pub meshes: Vec<ProxyMesh>,
-    pub bvhs: Vec<BVH>,
-    pub instances: Vec<renderer::resources::InstanceGPU>,
-    pub materials: Vec<renderer::resources::MaterialGPU>,
-    pub node_buffer: Vec<renderer::resources::BVHNodeGPU>,
-    pub vertex_buffer: Vec<renderer::resources::VertexGPU>,
-    pub index_buffer: Vec<u32>,
-}
-
-pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Scene {
+pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Error> {
     let (doc, buffers, _) = match gltf::import(file_path) {
         Ok(tuple) => tuple,
         Err(err) => {
-            panic!("glTF import failed: {:?}", err);
+            return match err {
+                gltf::Error::Io(_) => Err(Error::FileNotFound(String::from(
+                    file_path.as_ref().to_str().unwrap(),
+                ))),
+                _ => Err(Error::FileNotFound(String::new())),
+            };
             // if let gltf::Error::Io(_) = err {
             //     error!("Hint: Are the .bin file(s) referenced by the .gltf file available?")
             // }
@@ -143,7 +141,7 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Scene {
         }
     }
 
-    Scene {
+    Ok(Scene {
         meshes,
         instances,
         materials,
@@ -151,5 +149,6 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Scene {
         node_buffer: gpu_resources.nodes_buffer,
         vertex_buffer: gpu_resources.vertex_buffer,
         index_buffer: gpu_resources.index_buffer,
-    }
+        lights: vec![],
+    })
 }

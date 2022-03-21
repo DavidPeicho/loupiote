@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-use albedo_rtx::mesh::Mesh;
 use albedo_rtx::renderer::resources::LightGPU;
 use winit::{
     event::{self},
     event_loop::EventLoop,
 };
+
+mod errors;
 
 mod utils;
 
@@ -15,7 +16,7 @@ use gltf_loader::load_gltf;
 mod gui;
 
 mod scene;
-use scene::SceneGPU;
+use scene::{Scene, SceneGPU};
 
 mod camera;
 use camera::CameraMoveCommand;
@@ -32,6 +33,13 @@ struct WindowApp {
     surface: wgpu::Surface,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
+}
+
+pub struct ApplicationContext {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    scene: Scene<gltf_loader::ProxyMesh>,
+    scene_gpu: SceneGPU,
 }
 
 async fn setup() -> WindowApp {
@@ -152,37 +160,8 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    // let scene = load_gltf(&"./assets/cornell-box.glb");
-    // let scene = load_gltf(&"./assets/cornell-box-reflections.glb");
-    // let mut scene = load_gltf(&"./assets/suzanne.glb");
-    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb");
-    // let scene = load_gltf(&"./assets/meetmat-head.glb");
-
-    //// Scene Info
-    println!("➡️  Scene\n");
-
-    println!("\tMaterials =\n");
-    for mat in &scene.materials {
-        println!(
-            "\t( color: {}, roughness: {}, metalness: {} ),",
-            mat.color, mat.roughness, mat.reflectivity
-        );
-    }
-
-    println!("➡️  BVH\n");
-    println!("\tNode Count = {}", scene.node_buffer.len());
-    println!("\tNodes =");
-    for (mesh, bvh) in scene.meshes.iter().zip(scene.bvhs.iter()) {
-        println!("\t{{");
-        println!("\t\tVertices = {}", mesh.vertex_count());
-        println!("\t\tTris = {}", mesh.index_count() / 3);
-        println!("\t\tNodes = {}", bvh.nodes.len());
-        println!("\t\tDepth = {}", bvh.compute_depth());
-        println!("\t}}");
-    }
-    //// Scene Info
-
-    let lights = vec![LightGPU::from_matrix(
+    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb").unwrap();
+    scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
             glam::Quat::from_rotation_x(1.5),
@@ -218,36 +197,15 @@ fn main() {
     };
 
     //// Load HDRi enviromment.
-
-    let mut scene_resources_gpu = SceneGPU::new(
-        &device,
-        &scene.instances,
-        &scene.materials,
-        &scene.node_buffer,
-        &scene.index_buffer,
-        &scene.vertex_buffer,
-        &lights,
-    );
-    scene_resources_gpu
-        .instance_buffer
-        .update(&queue, &scene.instances);
-    scene_resources_gpu
-        .materials_buffer
-        .update(&queue, &scene.materials);
-    scene_resources_gpu
-        .bvh_buffer
-        .update(&queue, &scene.node_buffer);
-    scene_resources_gpu
-        .index_buffer
-        .update(&queue, &scene.index_buffer);
-    scene_resources_gpu
-        .vertex_buffer
-        .update(&queue, &scene.vertex_buffer);
-    scene_resources_gpu.light_buffer.update(&queue, &lights);
-    scene_resources_gpu.update_globals(&queue, scene.instances.len() as u32, lights.len() as u32);
-    scene_resources_gpu.upload_probe(
-        &device,
-        &queue,
+    let mut app_context = ApplicationContext {
+        scene_gpu: SceneGPU::new_from_scene(&scene, &device, &queue),
+        scene,
+        device,
+        queue,
+    };
+    app_context.scene_gpu.upload_probe(
+        &app_context.device,
+        &app_context.queue,
         image_data_raw,
         metadata.width,
         metadata.height,
@@ -266,20 +224,19 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(&device, &window, &surface_config);
-    gui.info_window_mut().adapter_name = adapter_info.name;
-    gui.info_window_mut().set_meshes_count(scene.meshes.len());
-    gui.info_window_mut()
-        .set_bvh_nodes_count(scene.node_buffer.len());
+    let mut gui = gui::GUI::new(&app_context.device, &window, &surface_config);
+    gui.scene_info_window.adapter_name = adapter_info.name;
+    gui.scene_info_window
+        .set_meshes_count(app_context.scene.meshes.len());
+    gui.scene_info_window
+        .set_bvh_nodes_count(app_context.scene.node_buffer.len());
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
-        &device,
+        &app_context.device,
         (size.width, size.height),
         swapchain_format,
-        &scene_resources_gpu,
+        &app_context.scene_gpu,
     )));
-    let device = Arc::new(Mutex::new(device));
-
     {
         let renderer = renderer.lock().unwrap();
         let size = renderer.get_size();
@@ -332,14 +289,14 @@ fn main() {
                 ..
             } => {
                 let new_size = (size.width.max(1), size.height.max(1));
-                let device = device.lock().unwrap();
                 surface_config.width = new_size.0;
                 surface_config.height = new_size.1;
-                renderer
-                    .lock()
-                    .unwrap()
-                    .resize(&device, &scene_resources_gpu, new_size);
-                surface.configure(&device, &surface_config);
+                renderer.lock().unwrap().resize(
+                    &app_context.device,
+                    &app_context.scene_gpu,
+                    new_size,
+                );
+                surface.configure(&app_context.device, &surface_config);
 
                 // println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
@@ -429,30 +386,33 @@ fn main() {
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
                 let mut renderer = renderer.lock().unwrap();
-                let device = device.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
 
-                let encoder = renderer.render(&device, &view, &queue);
+                let encoder = renderer.render(&app_context.device, &view, &app_context.queue);
 
                 let mut encoder_gui =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("encoder-gui"),
-                    });
+                    app_context
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("encoder-gui"),
+                        });
                 // Render GUI.
-                gui.info_window_mut()
+                gui.performance_info_window
                     .set_global_performance(duration.as_millis() as f64);
                 gui.render(
                     &window,
-                    &device,
-                    &queue,
+                    &mut app_context,
+                    &mut renderer,
                     &surface_config,
                     &mut encoder_gui,
                     &view,
-                    start_time.elapsed().as_secs_f64()
+                    start_time.elapsed().as_secs_f64(),
                 );
 
-                queue.submit([encoder.finish(), encoder_gui.finish()]);
+                &app_context
+                    .queue
+                    .submit([encoder.finish(), encoder_gui.finish()]);
                 frame.present();
             }
             _ => {}
