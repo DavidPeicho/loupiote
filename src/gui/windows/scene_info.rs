@@ -29,7 +29,7 @@ impl SceneInfoWindow {
         let adapter = &self.adapter_name;
         let meshes_count = &self.meshes_count;
         let bvh_nodes_count = &self.bvh_nodes_count;
-        let mut window = egui::Window::new("Scene Info")
+        egui::Window::new("Scene Info")
             .resizable(true)
             .open(&mut self.open)
             .show(context, |ui| {

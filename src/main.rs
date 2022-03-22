@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use albedo_rtx::renderer::resources::LightGPU;
@@ -24,26 +26,56 @@ use camera::CameraMoveCommand;
 mod renderer;
 use renderer::Renderer;
 
+struct Executor {
+    #[cfg(not(target_arch = "wasm32"))]
+    pool: futures::executor::ThreadPool,
+}
+
+impl Executor {
+    fn new() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            pool: futures::executor::ThreadPool::new().unwrap(),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn execut<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
+        self.pool.spawn_ok(f);
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn execut<F: Future<Output = ()> + 'static>(&self, f: F) {
+        wasm_bindgen_futures::spawn_local(f);
+    }
+}
+
 struct WindowApp {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     window: winit::window::Window,
-    event_loop: EventLoop<()>,
+    event_loop: EventLoop<EventLoopContext>,
     surface: wgpu::Surface,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
 }
 
 pub struct ApplicationContext {
+    window: winit::window::Window,
     device: wgpu::Device,
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
+
+    executor: Executor,
+}
+
+enum EventLoopContext {
+    OpenFileDialog,
 }
 
 async fn setup() -> WindowApp {
-    let event_loop = EventLoop::new();
+    let event_loop: EventLoop<EventLoopContext> = EventLoop::with_user_event();
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title("Albedo Pathtracer");
 
@@ -198,10 +230,12 @@ fn main() {
 
     //// Load HDRi enviromment.
     let mut app_context = ApplicationContext {
+        window,
         scene_gpu: SceneGPU::new_from_scene(&scene, &device, &queue),
         scene,
         device,
         queue,
+        executor: Executor::new(),
     };
     app_context.scene_gpu.upload_probe(
         &app_context.device,
@@ -224,7 +258,7 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(&app_context.device, &window, &surface_config);
+    let mut gui = gui::GUI::new(&app_context.device, &app_context.window, &surface_config);
     gui.scene_info_window.adapter_name = adapter_info.name;
     gui.scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
@@ -249,11 +283,12 @@ fn main() {
         );
     }
 
+    let event_loop_proxy = event_loop.create_proxy();
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
         match event {
             event::Event::MainEventsCleared => {
-                window.request_redraw();
+                app_context.window.request_redraw();
             }
             event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -269,7 +304,7 @@ fn main() {
                     let target_frametime = std::time::Duration::from_secs_f64(1.0 / 60.0);
                     let time_since_last_frame = last_update_inst.elapsed();
                     if time_since_last_frame >= target_frametime {
-                        window.request_redraw();
+                        app_context.window.request_redraw();
                         last_update_inst = std::time::Instant::now();
                     } else {
                         *control_flow = winit::event_loop::ControlFlow::WaitUntil(
@@ -401,7 +436,6 @@ fn main() {
                 gui.performance_info_window
                     .set_global_performance(duration.as_millis() as f64);
                 gui.render(
-                    &window,
                     &mut app_context,
                     &mut renderer,
                     &surface_config,
@@ -410,7 +444,7 @@ fn main() {
                     start_time.elapsed().as_secs_f64(),
                 );
 
-                &app_context
+                app_context
                     .queue
                     .submit([encoder.finish(), encoder_gui.finish()]);
                 frame.present();
