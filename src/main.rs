@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use albedo_rtx::renderer::resources::LightGPU;
@@ -26,29 +24,6 @@ use camera::CameraMoveCommand;
 mod renderer;
 use renderer::Renderer;
 
-struct Executor {
-    #[cfg(not(target_arch = "wasm32"))]
-    pool: futures::executor::ThreadPool,
-}
-
-impl Executor {
-    fn new() -> Self {
-        Self {
-            #[cfg(not(target_arch = "wasm32"))]
-            pool: futures::executor::ThreadPool::new().unwrap(),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn execut<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
-        self.pool.spawn_ok(f);
-    }
-    #[cfg(target_arch = "wasm32")]
-    fn execut<F: Future<Output = ()> + 'static>(&self, f: F) {
-        wasm_bindgen_futures::spawn_local(f);
-    }
-}
-
 struct WindowApp {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
@@ -66,13 +41,9 @@ pub struct ApplicationContext {
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
-
-    executor: Executor,
 }
 
-enum EventLoopContext {
-    OpenFileDialog,
-}
+enum EventLoopContext {}
 
 async fn setup() -> WindowApp {
     let event_loop: EventLoop<EventLoopContext> = EventLoop::with_user_event();
@@ -235,7 +206,6 @@ fn main() {
         scene,
         device,
         queue,
-        executor: Executor::new(),
     };
     app_context.scene_gpu.upload_probe(
         &app_context.device,
@@ -283,7 +253,6 @@ fn main() {
         );
     }
 
-    let event_loop_proxy = event_loop.create_proxy();
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
         match event {
@@ -423,7 +392,7 @@ fn main() {
                 let mut renderer = renderer.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 renderer.accumulate = camera_controller.is_static();
-
+                renderer.blit_only = event_captured;
                 let encoder = renderer.render(&app_context.device, &view, &app_context.queue);
 
                 let mut encoder_gui =

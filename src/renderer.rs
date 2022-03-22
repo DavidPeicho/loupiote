@@ -141,6 +141,7 @@ pub struct Renderer {
     pub downsample_factor: f32,
     accumulate_last_frame: bool,
     pub accumulate: bool,
+    pub blit_only: bool,
 }
 
 impl Renderer {
@@ -195,6 +196,7 @@ impl Renderer {
             size,
             downsample_factor,
             accumulate: true,
+            blit_only: false,
             accumulate_last_frame: false,
         };
         renderer.set_resources(device, scene_resources);
@@ -226,13 +228,23 @@ impl Renderer {
         const STATIC_NUM_BOUNCES: usize = 5;
         const MOVING_NUM_BOUNCES: usize = 2;
 
+        let mut bindgroups = &self.fullscreen_bindgroups;
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        if self.blit_only {
+            self.passes
+                .blit
+                .draw(&mut encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
+            return encoder;
+        }
+
         // Step 1:
         //     * Update the frame uniforms.
         //     * Send the uniforms to the GPU.
         //     * Select fullscreen / downsample resolution.
 
         let mut nb_bounces = STATIC_NUM_BOUNCES;
-        let mut bindgroups = &self.fullscreen_bindgroups;
         let mut size = self.size;
         if !self.accumulate {
             nb_bounces = MOVING_NUM_BOUNCES;
@@ -250,8 +262,6 @@ impl Renderer {
         self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &self.camera);
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let dispatch_size = (size.0, size.1, 1);
 
         // Step 1:
