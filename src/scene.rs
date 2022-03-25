@@ -1,11 +1,9 @@
 use std::num::NonZeroU32;
 
-use albedo_backend::{GPUBuffer, UniformBuffer};
+use albedo_backend::GPUBuffer;
 use albedo_rtx::accel;
 use albedo_rtx::renderer;
-use albedo_rtx::renderer::resources::{
-    BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, SceneSettingsGPU, VertexGPU,
-};
+use albedo_rtx::renderer::resources::{BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, VertexGPU};
 
 pub struct Scene<T: albedo_rtx::mesh::Mesh> {
     pub meshes: Vec<T>,
@@ -25,7 +23,6 @@ pub struct SceneGPU {
     pub index_buffer: GPUBuffer<u32>,
     pub vertex_buffer: GPUBuffer<VertexGPU>,
     pub light_buffer: GPUBuffer<LightGPU>,
-    pub scene_settings_buffer: UniformBuffer<SceneSettingsGPU>,
     pub probe_texture: Option<wgpu::Texture>,
     pub probe_texture_view: Option<wgpu::TextureView>,
 }
@@ -47,7 +44,6 @@ impl SceneGPU {
             index_buffer: GPUBuffer::from_data(&device, indices),
             vertex_buffer: GPUBuffer::from_data(&device, vertices),
             light_buffer: GPUBuffer::from_data(&device, lights),
-            scene_settings_buffer: UniformBuffer::new(&device),
             probe_texture: None,
             probe_texture_view: None,
         }
@@ -76,22 +72,7 @@ impl SceneGPU {
         resources.index_buffer.update(&queue, &scene.index_buffer);
         resources.vertex_buffer.update(&queue, &scene.vertex_buffer);
         resources.light_buffer.update(&queue, &scene.lights);
-        resources.update_globals(
-            queue,
-            scene.instances.len() as u32,
-            scene.lights.len() as u32,
-        );
         resources
-    }
-
-    pub fn update_globals(&mut self, queue: &wgpu::Queue, nb_instances: u32, nb_lights: u32) {
-        self.scene_settings_buffer.update(
-            &queue,
-            &SceneSettingsGPU {
-                light_count: nb_lights,
-                instance_count: nb_instances,
-            },
-        );
     }
 
     pub fn upload_probe(

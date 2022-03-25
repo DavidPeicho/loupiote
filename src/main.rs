@@ -241,17 +241,6 @@ fn main() {
         swapchain_format,
         &app_context.scene_gpu,
     )));
-    {
-        let renderer = renderer.lock().unwrap();
-        let size = renderer.get_size();
-        let downsampled_size = renderer.get_downsampled_size();
-        println!("➡️  Info\n");
-        println!("\tDimension = {}x{}", size.0, size.1);
-        println!(
-            "\tDownsample Dimension = {}x{}",
-            downsampled_size.0, downsampled_size.1
-        );
-    }
 
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);

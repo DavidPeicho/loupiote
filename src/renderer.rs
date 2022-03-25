@@ -11,6 +11,7 @@ use crate::scene::SceneGPU;
 struct ScreenBoundResourcesGPU {
     ray_buffer: GPUBuffer<RayGPU>,
     intersection_buffer: GPUBuffer<IntersectionGPU>,
+    render_target: wgpu::Texture,
     render_target_view: wgpu::TextureView,
 }
 
@@ -38,6 +39,7 @@ impl ScreenBoundResourcesGPU {
             ),
             intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
+            render_target,
         }
     }
 }
@@ -80,7 +82,6 @@ impl BindGroups {
                 &scene_resources.vertex_buffer,
                 &scene_resources.light_buffer,
                 &screen_resources.ray_buffer,
-                &scene_resources.scene_settings_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 &device,
@@ -91,7 +92,6 @@ impl BindGroups {
                 &scene_resources.vertex_buffer,
                 &scene_resources.light_buffer,
                 &scene_resources.materials_buffer,
-                &scene_resources.scene_settings_buffer,
                 scene_resources.probe_texture_view.as_ref().unwrap(),
                 &filtered_sampler_2d,
                 global_uniforms,
@@ -361,4 +361,41 @@ impl Renderer {
         ));
         self.global_uniforms.frame_count = 1;
     }
+
+    pub fn read_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let alignment = albedo_backend::Alignment2D::texture_buffer_copy(self.size.0 as usize);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Read Pixel Encoder"),
+        });
+        let (width, height) = self.size;
+        let gpu_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (height * alignment.padded_bytes()) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let texture_extent = wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        };
+        encoder.copy_texture_to_buffer(
+            self.screen_bound_resources.render_target.as_image_copy(),
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(
+                        std::num::NonZeroU32::new(buffer_dimensions.padded_bytes() as u32).unwrap(),
+                    ),
+                    rows_per_image: None,
+                },
+            },
+            texture_extent,
+        );
+        queue.submit(Some(encoder.finish()));
+        pollster::block_on(create_image_from_gpu_buffer());
+    }
 }
+
+async fn create_image_from_gpu_buffer() {}

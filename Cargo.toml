@@ -13,13 +13,13 @@ enumflags2 = "0.7.1"
 wgpu = "0.12.0"
 glam = "0.20.2"
 gltf = "0.15.2"
+image = { version = "0.24.1", default-features = false, features = ["png"] }
 pollster = "0.2"
 egui = { version = "0.17.0", default-features = false, features = [
   "single_threaded",
 ] }
 egui_wgpu_backend = "0.17"
 egui_winit_platform = "0.14"
-futures = {version="0.3.10",features=["thread-pool"]}
 rfd = "0.8.1"
 albedo_backend = { path = "../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
 albedo_rtx = { path = "../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
