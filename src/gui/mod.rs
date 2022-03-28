@@ -223,8 +223,6 @@ impl GUI {
             if let Some(output) =
                 image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(size.0, size.1, &bytes[..])
             {
-                let output = image::imageops::flip_vertical(&output);
-                println!("{}, {}, {}", output.width(), output.height(), bytes.len());
                 output.save(path)?;
             }
         }

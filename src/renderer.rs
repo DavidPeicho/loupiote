@@ -29,9 +29,7 @@ impl ScreenBoundResourcesGPU {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
         let pixel_count = (size.0 * size.0) as usize;
         ScreenBoundResourcesGPU {
@@ -372,7 +370,7 @@ impl Renderer {
     ) -> Result<Vec<u8>, Error> {
         let alignment = albedo_backend::Alignment2D::texture_buffer_copy(
             self.size.0 as usize,
-            std::mem::size_of::<u32>() * 4,
+            std::mem::size_of::<u32>(),
         );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Read Pixel Encoder"),
@@ -389,8 +387,27 @@ impl Renderer {
             height: height as u32,
             depth_or_array_layers: 1,
         };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            label: None,
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // @todo: this re-create shaders + pipeline layout + life.
+        let blit_pass = BlitPass::new(device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        blit_pass.draw(
+            &mut encoder,
+            &view,
+            &self.fullscreen_bindgroups.as_ref().unwrap().blit_pass,
+        );
+
         encoder.copy_texture_to_buffer(
-            self.screen_bound_resources.render_target.as_image_copy(),
+            texture.as_image_copy(),
             wgpu::ImageCopyBuffer {
                 buffer: &gpu_buffer,
                 layout: wgpu::ImageDataLayout {
@@ -412,26 +429,13 @@ impl Renderer {
 
         if let Ok(()) = buffer_future.await {
             let padded_buffer = buffer_slice.get_mapped_range();
-            // let mut bytes: Vec<u8> = vec![0; alignment.unpadded_bytes_per_row * height as usize];
-            // // from the padded_buffer we write just the unpadded bytes into the image
-            // for (padded, bytes) in padded_buffer
-            //     .chunks_exact(alignment.padded_bytes_per_row)
-            //     .zip(bytes.chunks_exact_mut(alignment.unpadded_bytes_per_row))
-            // {
-            //     bytes.copy_from_slice(&padded[..alignment.unpadded_bytes_per_row]);
-            // }
-            let mut bytes: Vec<u8> =
-                vec![0; width as usize * height as usize * std::mem::size_of::<u32>()];
-            let mut i: usize = 0;
-            for chunk in padded_buffer.chunks_exact(alignment.padded_bytes_per_row) {
-                for y in (0..chunk.len()).step_by(4) {
-                    let value =
-                        f32::from_le_bytes([chunk[y], chunk[y + 1], chunk[y + 2], chunk[y + 3]])
-                            / (self.global_uniforms.frame_count as f32);
-                    bytes[i] = (value * 255.0) as u8;
-                    // bytes[i] = (value) as u8;
-                    i = i + 1
-                }
+            let mut bytes: Vec<u8> = vec![0; alignment.unpadded_bytes_per_row * height as usize];
+            // from the padded_buffer we write just the unpadded bytes into the image
+            for (padded, bytes) in padded_buffer
+                .chunks_exact(alignment.padded_bytes_per_row)
+                .zip(bytes.chunks_exact_mut(alignment.unpadded_bytes_per_row))
+            {
+                bytes.copy_from_slice(&padded[..alignment.unpadded_bytes_per_row]);
             }
             // With the current interface, we have to make sure all mapped views are
             // dropped before we unmap the buffer.
