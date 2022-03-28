@@ -109,7 +109,7 @@ impl SceneGPU {
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: NonZeroU32::new(
-                    std::mem::size_of::<image::hdr::Rgbe8Pixel>() as u32 * width,
+                    std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>() as u32 * width,
                 ),
                 rows_per_image: NonZeroU32::new(height),
             },

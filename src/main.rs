@@ -41,6 +41,7 @@ pub struct ApplicationContext {
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
+    wait: bool,
 }
 
 enum EventLoopContext {}
@@ -189,13 +190,13 @@ fn main() {
     //// Load HDRi enviromment.
     let file_reader =
         std::io::BufReader::new(std::fs::File::open("./assets/uffizi-large.hdr").unwrap());
-    let decoder = image::hdr::HdrDecoder::new(file_reader).unwrap();
+    let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).unwrap();
     let metadata = decoder.metadata();
     let image_data = decoder.read_image_native().unwrap();
     let image_data_raw = unsafe {
         std::slice::from_raw_parts(
             image_data.as_ptr() as *const u8,
-            image_data.len() * std::mem::size_of::<image::hdr::Rgbe8Pixel>(),
+            image_data.len() * std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>(),
         )
     };
 
@@ -206,6 +207,7 @@ fn main() {
         scene,
         device,
         queue,
+        wait: false,
     };
     app_context.scene_gpu.upload_probe(
         &app_context.device,
@@ -245,33 +247,6 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
         match event {
-            event::Event::MainEventsCleared => {
-                app_context.window.request_redraw();
-            }
-            event::Event::RedrawEventsCleared => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    // Clamp to some max framerate to avoid busy-looping too much
-                    // (we might be in wgpu::PresentMode::Mailbox, thus discarding superfluous frames)
-                    //
-                    // winit has window.current_monitor().video_modes() but that is a list of all full screen video modes.
-                    // So without extra dependencies it's a bit tricky to get the max refresh rate we can run the window on.
-                    // Therefore we just go with 60fps - sorry 120hz+ folks!
-
-                    // @todo: shouldn't limit pathtracer to 60FPS if possible.
-                    let target_frametime = std::time::Duration::from_secs_f64(1.0 / 60.0);
-                    let time_since_last_frame = last_update_inst.elapsed();
-                    if time_since_last_frame >= target_frametime {
-                        app_context.window.request_redraw();
-                        last_update_inst = std::time::Instant::now();
-                    } else {
-                        *control_flow = winit::event_loop::ControlFlow::WaitUntil(
-                            std::time::Instant::now() + target_frametime - time_since_last_frame,
-                        );
-                    }
-                }
-            }
-
             event::Event::WindowEvent {
                 event:
                     event::WindowEvent::Resized(size)
@@ -290,8 +265,6 @@ fn main() {
                     new_size,
                 );
                 surface.configure(&app_context.device, &surface_config);
-
-                // println!("\tDimensions = {}x{}", new_size.0, new_size.1);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -359,7 +332,37 @@ fn main() {
                 _ => {}
             },
 
-            event::Event::RedrawRequested(_) => {
+            // event::Event::RedrawEventsCleared => {
+            //     #[cfg(not(target_arch = "wasm32"))]
+            //     {
+            //         // Clamp to some max framerate to avoid busy-looping too much
+            //         // (we might be in wgpu::PresentMode::Mailbox, thus discarding superfluous frames)
+            //         //
+            //         // winit has window.current_monitor().video_modes() but that is a list of all full screen video modes.
+            //         // So without extra dependencies it's a bit tricky to get the max refresh rate we can run the window on.
+            //         // Therefore we just go with 60fps - sorry 120hz+ folks!
+            //         let target_frametime = std::time::Duration::from_secs_f64(1.0 / 60.0);
+            //         let time_since_last_frame = last_update_inst.elapsed();
+            //         if time_since_last_frame >= target_frametime {
+            //             println!("Request Redraw");
+            //             app_context.window.request_redraw();
+            //             last_update_inst = std::time::Instant::now();
+            //         } else {
+            //             *control_flow = winit::event_loop::ControlFlow::WaitUntil(
+            //                 std::time::Instant::now() + target_frametime - time_since_last_frame,
+            //             );
+            //         }
+            //     }
+
+            //     #[cfg(target_arch = "wasm32")]
+            //     window.request_redraw();
+            // }
+
+            // event::Event::RedrawRequested(_) => {
+            event::Event::MainEventsCleared => {
+                // // Record the frame time at the start of the frame.
+                let frame_start_time = std::time::Instant::now();
+
                 let frame = surface
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
@@ -405,7 +408,14 @@ fn main() {
                 app_context
                     .queue
                     .submit([encoder.finish(), encoder_gui.finish()]);
+
                 frame.present();
+
+                // // Sleep for the remaining time to cap at 60Hz
+                // let elapsed = std::time::Instant::now().duration_since(frame_start_time);
+                // let remaining =
+                //     std::time::Duration::from_secs_f32(1.0 / 60.0).saturating_sub(elapsed);
+                // std::thread::sleep(remaining);
             }
             _ => {}
         }

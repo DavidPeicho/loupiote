@@ -85,13 +85,11 @@ impl GUI {
         self.platform.update_time(delta);
         self.platform.begin_frame();
 
-        let context = self.platform.context();
-
-        if let Err(error) = self.render_gui(&context, app_context, renderer) {
+        if let Err(error) = self.render_gui(&self.platform.context(), app_context, renderer) {
             self.error_window = Some(ErrorWindow::new(error.into()));
         }
         if let Some(error_window) = &mut self.error_window {
-            error_window.render(&context);
+            error_window.render(&self.platform.context());
             if !error_window.open {
                 self.error_window = None;
             }
@@ -150,7 +148,7 @@ impl GUI {
         TopBottomPanel::top("menu_bar").show(context, |ui| {
             trace!(ui);
             menu::bar(ui, |ui| {
-                result = self.render_file_menu(ui, app_context, renderer);
+                let menu_res = self.render_file_menu(ui, app_context, renderer);
                 ui.menu_button("Windows", |ui| {
                     if ui.button("Scene Information").clicked() {
                         self.scene_info_window.open = true;
@@ -161,6 +159,7 @@ impl GUI {
                         ui.ctx().memory().reset_areas();
                     }
                 });
+                let screenshot_res = self.render_screenshot_menu(ui, app_context, renderer);
             });
         });
         result
@@ -200,6 +199,34 @@ impl GUI {
             app_context.scene_gpu.probe_texture_view = probe_tex_view;
             app_context.scene = scene;
             renderer.set_resources(&app_context.device, &app_context.scene_gpu);
+        }
+        Ok(())
+    }
+
+    fn render_screenshot_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        app_context: &mut crate::ApplicationContext,
+        renderer: &mut crate::Renderer,
+    ) -> Result<(), Error> {
+        let mut file_path: Option<std::path::PathBuf> = None;
+        if ui.button("📷").clicked() {
+            file_path = rfd::FileDialog::new()
+                .add_filter("image", &["png", "jpg"])
+                .set_parent(&app_context.window)
+                .save_file();
+        }
+        if let Some(path) = file_path {
+            let size = renderer.get_size();
+            let bytes =
+                pollster::block_on(renderer.read_pixels(&app_context.device, &app_context.queue))?;
+            if let Some(output) =
+                image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(size.0, size.1, &bytes[..])
+            {
+                let output = image::imageops::flip_vertical(&output);
+                println!("{}, {}, {}", output.width(), output.height(), bytes.len());
+                output.save(path)?;
+            }
         }
         Ok(())
     }

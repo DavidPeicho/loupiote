@@ -1,6 +1,10 @@
+use image::ImageError;
+
 #[derive(Debug)]
 pub enum Error {
     FileNotFound(String),
+    TextureToBufferReadFail,
+    ImageError(ImageError),
 }
 
 impl From<Error> for String {
@@ -9,6 +13,16 @@ impl From<Error> for String {
             Error::FileNotFound(filename) => {
                 format!("file not found: {}", filename)
             }
+            Error::ImageError(e) => {
+                format!("file not found: {:?}", e)
+            }
+            Error::TextureToBufferReadFail => String::from("failed to read pixels from GPU to CPU"),
         }
+    }
+}
+
+impl From<ImageError> for Error {
+    fn from(e: ImageError) -> Self {
+        Error::ImageError(e)
     }
 }

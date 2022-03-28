@@ -6,6 +6,7 @@ use albedo_rtx::passes::{
 };
 use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
 
+use crate::errors::Error;
 use crate::scene::SceneGPU;
 
 struct ScreenBoundResourcesGPU {
@@ -28,7 +29,9 @@ impl ScreenBoundResourcesGPU {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
         });
         let pixel_count = (size.0 * size.0) as usize;
         ScreenBoundResourcesGPU {
@@ -362,15 +365,22 @@ impl Renderer {
         self.global_uniforms.frame_count = 1;
     }
 
-    pub fn read_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let alignment = albedo_backend::Alignment2D::texture_buffer_copy(self.size.0 as usize);
+    pub async fn read_pixels(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<Vec<u8>, Error> {
+        let alignment = albedo_backend::Alignment2D::texture_buffer_copy(
+            self.size.0 as usize,
+            std::mem::size_of::<u32>() * 4,
+        );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Read Pixel Encoder"),
         });
         let (width, height) = self.size;
         let gpu_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: (height * alignment.padded_bytes()) as u64,
+            size: height as u64 * alignment.padded_bytes() as u64,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -382,11 +392,11 @@ impl Renderer {
         encoder.copy_texture_to_buffer(
             self.screen_bound_resources.render_target.as_image_copy(),
             wgpu::ImageCopyBuffer {
-                buffer: &output_buffer,
+                buffer: &gpu_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(
-                        std::num::NonZeroU32::new(buffer_dimensions.padded_bytes() as u32).unwrap(),
+                        std::num::NonZeroU32::new(alignment.padded_bytes() as u32).unwrap(),
                     ),
                     rows_per_image: None,
                 },
@@ -394,8 +404,42 @@ impl Renderer {
             texture_extent,
         );
         queue.submit(Some(encoder.finish()));
-        pollster::block_on(create_image_from_gpu_buffer());
+
+        let buffer_slice = gpu_buffer.slice(..);
+        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
+
+        device.poll(wgpu::Maintain::Wait);
+
+        if let Ok(()) = buffer_future.await {
+            let padded_buffer = buffer_slice.get_mapped_range();
+            // let mut bytes: Vec<u8> = vec![0; alignment.unpadded_bytes_per_row * height as usize];
+            // // from the padded_buffer we write just the unpadded bytes into the image
+            // for (padded, bytes) in padded_buffer
+            //     .chunks_exact(alignment.padded_bytes_per_row)
+            //     .zip(bytes.chunks_exact_mut(alignment.unpadded_bytes_per_row))
+            // {
+            //     bytes.copy_from_slice(&padded[..alignment.unpadded_bytes_per_row]);
+            // }
+            let mut bytes: Vec<u8> =
+                vec![0; width as usize * height as usize * std::mem::size_of::<u32>()];
+            let mut i: usize = 0;
+            for chunk in padded_buffer.chunks_exact(alignment.padded_bytes_per_row) {
+                for y in (0..chunk.len()).step_by(4) {
+                    let value =
+                        f32::from_le_bytes([chunk[y], chunk[y + 1], chunk[y + 2], chunk[y + 3]])
+                            / (self.global_uniforms.frame_count as f32);
+                    bytes[i] = (value * 255.0) as u8;
+                    // bytes[i] = (value) as u8;
+                    i = i + 1
+                }
+            }
+            // With the current interface, we have to make sure all mapped views are
+            // dropped before we unmap the buffer.
+            drop(padded_buffer);
+            gpu_buffer.unmap();
+            Ok(bytes)
+        } else {
+            Err(Error::TextureToBufferReadFail)
+        }
     }
 }
-
-async fn create_image_from_gpu_buffer() {}
