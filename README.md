@@ -8,8 +8,11 @@ This repository is based on the [Albedo](https://github.com/albedo-engine/albedo
 
 ## Features
 
-* BVH
+* BVH built using SAH
 * glTF loader
+* GUI composed of:
+    * Load glTF using dialog
+    * Save current render
 
 ## Build
 
