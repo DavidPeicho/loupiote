@@ -92,6 +92,26 @@ async fn setup() -> WindowApp {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        let query_string = web_sys::window().unwrap().location().search().unwrap();
+        let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(log::Level::Error);
+        console_log::init_with_level(level).expect("could not initialize logger");
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        // On wasm, append the canvas to the document body
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("couldn't append canvas to document body");
+    }
+
     WindowApp {
         instance,
         adapter,
@@ -145,8 +165,6 @@ fn main() {
         queue,
         size,
     } = pollster::block_on(setup());
-
-    let adapter_info = adapter.get_info();
 
     println!("\n============================================================");
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
@@ -221,7 +239,9 @@ fn main() {
 
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_update_inst = std::time::Instant::now();
+    #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
+    #[cfg(not(target_arch = "wasm32"))]
     let start_time = std::time::Instant::now();
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
@@ -231,11 +251,16 @@ fn main() {
     // Create GUI.
     //
     let mut gui = gui::GUI::new(&app_context.device, &app_context.window, &surface_config);
-    gui.scene_info_window.adapter_name = adapter_info.name;
     gui.scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
     gui.scene_info_window
         .set_bvh_nodes_count(app_context.scene.node_buffer.len());
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let adapter_info = adapter.get_info();
+        gui.scene_info_window.adapter_name = adapter_info.name;
+    }
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
         &app_context.device,

@@ -211,10 +211,13 @@ impl GUI {
     ) -> Result<(), Error> {
         let mut file_path: Option<std::path::PathBuf> = None;
         if ui.button("📷").clicked() {
-            file_path = rfd::FileDialog::new()
-                .add_filter("image", &["png", "jpg"])
-                .set_parent(&app_context.window)
-                .save_file();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                file_path = rfd::FileDialog::new()
+                    .add_filter("image", &["png", "jpg"])
+                    .set_parent(&app_context.window)
+                    .save_file();
+            }
         }
         if let Some(path) = file_path {
             let size = renderer.get_size();
