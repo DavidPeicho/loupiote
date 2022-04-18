@@ -51,7 +51,7 @@ async fn setup() -> WindowApp {
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title("Albedo Pathtracer");
 
-    let window = builder.build(&event_loop).unwrap();
+    let window = builder.build(&event_loop).expect("failed to create window");
 
     let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let (size, surface) = unsafe {
@@ -95,10 +95,11 @@ async fn setup() -> WindowApp {
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::WindowExtWebSys;
-        let query_string = web_sys::window().unwrap().location().search().unwrap();
-        let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(log::Level::Error);
+        // let query_string = web_sys::window().unwrap().location().search().unwrap();
+        // let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
+        //     .and_then(|x| x.parse().ok())
+        //     .unwrap_or(log::Level::Error);
+        let level = log::Level::Error;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         // On wasm, append the canvas to the document body
@@ -154,7 +155,7 @@ async fn setup() -> WindowApp {
 //         .expect("failed to watch file!");
 // }
 
-fn main() {
+fn run(app: WindowApp) {
     let WindowApp {
         instance,
         adapter,
@@ -164,13 +165,13 @@ fn main() {
         surface,
         queue,
         size,
-    } = pollster::block_on(setup());
+    } = app;
 
     println!("\n============================================================");
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
 
-    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+    let swapchain_format = surface.get_preferred_format(&adapter).expect("failed to acquire swapchain format");
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
@@ -182,7 +183,7 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb").unwrap();
+    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb").expect("failed to load glTF");
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
@@ -208,7 +209,7 @@ fn main() {
     //// Load HDRi enviromment.
     let file_reader =
         std::io::BufReader::new(std::fs::File::open("./assets/uffizi-large.hdr").unwrap());
-    let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).unwrap();
+    let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).expect("failed to create HDR decoder");
     let metadata = decoder.metadata();
     let image_data = decoder.read_image_native().unwrap();
     let image_data_raw = unsafe {
@@ -240,9 +241,20 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_update_inst = std::time::Instant::now();
     #[cfg(not(target_arch = "wasm32"))]
-    let mut last_time = std::time::Instant::now();
-    #[cfg(not(target_arch = "wasm32"))]
     let start_time = std::time::Instant::now();
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut last_time = std::time::Instant::now();
+
+    #[cfg(target_arch = "wasm32")]
+    let web_window = web_sys::window().expect("should have a window in this context");
+    #[cfg(target_arch = "wasm32")]
+    let web_performance = web_window
+        .performance()
+        .expect("performance should be available");
+    #[cfg(target_arch = "wasm32")]
+    let start_time = web_performance.now();
+    #[cfg(target_arch = "wasm32")]
+    let mut last_time = web_performance.now();
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
@@ -385,9 +397,6 @@ fn main() {
 
             // event::Event::RedrawRequested(_) => {
             event::Event::MainEventsCleared => {
-                // // Record the frame time at the start of the frame.
-                let frame_start_time = std::time::Instant::now();
-
                 let frame = surface
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
@@ -395,14 +404,27 @@ fn main() {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
+                #[cfg(not(target_arch = "wasm32"))]
+                let now = std::time::Instant::now();
+                #[cfg(target_arch = "wasm32")]
+                let now = web_performance.now();
+
                 // Updates.
+                #[cfg(not(target_arch = "wasm32"))]
+                let elapsed = start_time.elapsed().as_secs_f64();
+                #[cfg(target_arch = "wasm32")]
+                let elapsed = web_performance.now() - start_time;
 
-                let duration = std::time::Instant::now() - last_time;
-                last_time += duration;
-
+                #[cfg(not(target_arch = "wasm32"))]
+                let duration = now - last_time;
                 // @todo: this assumes 60FPS, it shouldn't.
+                #[cfg(not(target_arch = "wasm32"))]
                 let delta =
                     (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
+                #[cfg(target_arch = "wasm32")]
+                let delta = (now - last_time) as f32;
+
+                // last_time = last_time + duration;
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
@@ -420,14 +442,14 @@ fn main() {
                         });
                 // Render GUI.
                 gui.performance_info_window
-                    .set_global_performance(duration.as_millis() as f64);
+                    .set_global_performance(delta as f64);
                 gui.render(
                     &mut app_context,
                     &mut renderer,
                     &surface_config,
                     &mut encoder_gui,
                     &view,
-                    start_time.elapsed().as_secs_f64(),
+                    elapsed,
                 );
 
                 app_context
@@ -435,14 +457,45 @@ fn main() {
                     .submit([encoder.finish(), encoder_gui.finish()]);
 
                 frame.present();
-
-                // // Sleep for the remaining time to cap at 60Hz
-                // let elapsed = std::time::Instant::now().duration_since(frame_start_time);
-                // let remaining =
-                //     std::time::Duration::from_secs_f32(1.0 / 60.0).saturating_sub(elapsed);
-                // std::thread::sleep(remaining);
             }
             _ => {}
         }
     });
+}
+
+fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let app = pollster::block_on(setup());
+        run(app);
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{prelude::*, JsCast};
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let app = setup().await;
+            let start_closure = Closure::once_into_js(move || run(app));
+    
+            // make sure to handle JS exceptions thrown inside start.
+            // Otherwise wasm_bindgen_futures Queue would break and never handle any tasks again.
+            // This is required, because winit uses JS exception for control flow to escape from `run`.
+            if let Err(error) = call_catch(&start_closure) {
+                let is_control_flow_exception = error.dyn_ref::<js_sys::Error>().map_or(false, |e| {
+                    e.message().includes("Using exceptions for control flow", 0)
+                });
+    
+                if !is_control_flow_exception {
+                    web_sys::console::error_1(&error);
+                }
+            }
+    
+            #[wasm_bindgen]
+            extern "C" {
+                #[wasm_bindgen(catch, js_namespace = Function, js_name = "prototype.call.call")]
+                fn call_catch(this: &JsValue) -> Result<(), JsValue>;
+            }
+        });
+    };
 }

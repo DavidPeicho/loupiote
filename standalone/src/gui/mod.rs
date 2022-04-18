@@ -175,9 +175,12 @@ impl GUI {
         ui.menu_button("File", |ui| {
             if ui.button("Load").clicked() {
                 ui.ctx().memory().reset_areas();
-                file_path = rfd::FileDialog::new()
-                    .set_parent(&app_context.window)
-                    .pick_file();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    file_path = rfd::FileDialog::new()
+                        .set_parent(&app_context.window)
+                        .pick_file();
+                }
             }
         });
         if let Some(path) = file_path {
