@@ -140,9 +140,7 @@ pub struct Renderer {
     size: (u32, u32),
 
     pub downsample_factor: f32,
-    accumulate_last_frame: bool,
     pub accumulate: bool,
-    pub blit_only: bool,
 }
 
 impl Renderer {
@@ -165,7 +163,10 @@ impl Renderer {
             ),
             camera: Default::default(),
             camera_uniforms: UniformBuffer::new(&device),
-            global_uniforms: GlobalUniformsGPU::new(),
+            global_uniforms: GlobalUniformsGPU {
+                frame_count: 1,
+                seed: 0
+            },
             global_uniforms_buffer: UniformBuffer::new(&device),
             nearest_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -196,9 +197,7 @@ impl Renderer {
             downsample_bindgroups: None,
             size,
             downsample_factor,
-            accumulate: true,
-            blit_only: false,
-            accumulate_last_frame: false,
+            accumulate: false,
         };
         renderer.set_resources(device, scene_resources);
         renderer
@@ -219,26 +218,16 @@ impl Renderer {
         self.set_resources(device, scene_resources);
     }
 
-    pub fn render(
+    pub fn raytrace(
         &mut self,
-        device: &wgpu::Device,
-        view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
         queue: &wgpu::Queue,
-    ) -> wgpu::CommandEncoder {
+    ) {
         const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
         const STATIC_NUM_BOUNCES: usize = 5;
         const MOVING_NUM_BOUNCES: usize = 2;
 
         let mut bindgroups = &self.fullscreen_bindgroups;
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        if self.blit_only {
-            self.passes
-                .blit
-                .draw(&mut encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
-            return encoder;
-        }
 
         // Step 1:
         //     * Update the frame uniforms.
@@ -249,16 +238,9 @@ impl Renderer {
         let mut size = self.size;
         if !self.accumulate {
             nb_bounces = MOVING_NUM_BOUNCES;
-            self.global_uniforms.frame_count = 1;
             bindgroups = &self.downsample_bindgroups;
             size = self.get_downsampled_size();
         }
-        if !self.accumulate_last_frame && self.accumulate {
-            self.global_uniforms.frame_count = 1
-        }
-
-        self.global_uniforms_buffer
-            .update(&queue, &self.global_uniforms);
 
         self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &self.camera);
@@ -269,7 +251,7 @@ impl Renderer {
         //
         // Generate a ray struct for every fragment.
         ComputePass::new(
-            &mut encoder,
+            encoder,
             &self.passes.rays,
             &bindgroups.as_ref().unwrap().generate_ray_pass,
         )
@@ -278,44 +260,55 @@ impl Renderer {
         // Step 2:
         //
         // Alternate between intersection & shading.
-        let before_count = self.global_uniforms.frame_count;
         for _ in 0..nb_bounces {
-            self.global_uniforms.frame_count += 1;
+            self.global_uniforms.seed += 1;
             self.global_uniforms_buffer
                 .update(&queue, &self.global_uniforms);
             ComputePass::new(
-                &mut encoder,
+                encoder,
                 &self.passes.intersection,
                 &bindgroups.as_ref().unwrap().intersection_pass,
             )
             .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
             ComputePass::new(
-                &mut encoder,
+                encoder,
                 &self.passes.shading,
                 &bindgroups.as_ref().unwrap().shading_pass,
             )
             .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
         }
-        self.global_uniforms.frame_count = before_count;
-        self.global_uniforms_buffer
-            .update(&queue, &self.global_uniforms);
-
         // Accumulation.
         ComputePass::new(
-            &mut encoder,
+            encoder,
             &self.passes.accumulation,
             &bindgroups.as_ref().unwrap().accumulate_pass,
         )
         .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
 
+        if self.accumulate {
+            self.global_uniforms.frame_count += 1;
+        }
+    }
+
+    pub fn blit(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView
+    ) {
+        let bindgroups = if self.accumulate {
+            &self.fullscreen_bindgroups
+        } else {
+            &self.downsample_bindgroups
+        };
         self.passes
             .blit
-            .draw(&mut encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
+            .draw(encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
+    }
 
-        self.global_uniforms.frame_count += 1;
-        self.accumulate_last_frame = self.accumulate;
-
-        encoder
+    pub fn reset_accumulation(&mut self) {
+        self.global_uniforms.frame_count = 1;
+        self.global_uniforms.seed = 0;
+        self.accumulate = false;
     }
 
     pub fn get_size(&self) -> (u32, u32) {

@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::future::Future;
 
 use albedo_rtx::renderer::resources::LightGPU;
 use winit::{
@@ -41,7 +42,7 @@ pub struct ApplicationContext {
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
-    wait: bool,
+    focused: bool
 }
 
 enum EventLoopContext {}
@@ -70,7 +71,8 @@ async fn setup() -> WindowApp {
 
     let optional_features: wgpu::Features = wgpu::Features::default();
     let required_features: wgpu::Features =
-        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES |
+        wgpu::Features::CLEAR_COMMANDS;
 
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
@@ -176,13 +178,13 @@ fn main() {
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: wgpu::PresentMode::Mailbox,
+        present_mode: wgpu::PresentMode::Immediate,
     };
 
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
-    let mut scene = load_gltf(&"./assets/suzanne-instancing.glb").unwrap();
+    let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
@@ -225,7 +227,7 @@ fn main() {
         scene,
         device,
         queue,
-        wait: false,
+        focused: false
     };
     app_context.scene_gpu.upload_probe(
         &app_context.device,
@@ -237,8 +239,6 @@ fn main() {
 
     //// Renderer:
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let mut last_update_inst = std::time::Instant::now();
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
     #[cfg(not(target_arch = "wasm32"))]
@@ -268,10 +268,27 @@ fn main() {
         swapchain_format,
         &app_context.scene_gpu,
     )));
+    renderer.lock().unwrap().resize(
+        &app_context.device,
+        &app_context.scene_gpu,
+        (size.width.max(1), size.height.max(1))
+    );
 
+    let spawner = Spawner::new();
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
         match event {
+            event::Event::Resumed => {
+                // *surface = Some(Arc::new(unsafe { instance.create_surface(window) }));
+                // Some(false)
+                println!("Resumed");
+            }
+            event::Event::Suspended => {
+                // *surface = None;
+                // Some(true)
+                println!("Suspended");
+            }
+
             event::Event::WindowEvent {
                 event:
                     event::WindowEvent::Resized(size)
@@ -289,8 +306,9 @@ fn main() {
                     &app_context.scene_gpu,
                     new_size,
                 );
+                println!("{:?}, {:?}", new_size.0, new_size.1);
                 surface.configure(&app_context.device, &surface_config);
-            }
+            },
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
                 event::DeviceEvent::MouseMotion { delta } => {
@@ -356,38 +374,22 @@ fn main() {
                 }
                 _ => {}
             },
+            event::Event::RedrawEventsCleared => {
+                #[cfg(not(target_arch = "wasm32"))]
+                spawner.run_until_stalled();
 
-            // event::Event::RedrawEventsCleared => {
-            //     #[cfg(not(target_arch = "wasm32"))]
-            //     {
-            //         // Clamp to some max framerate to avoid busy-looping too much
-            //         // (we might be in wgpu::PresentMode::Mailbox, thus discarding superfluous frames)
-            //         //
-            //         // winit has window.current_monitor().video_modes() but that is a list of all full screen video modes.
-            //         // So without extra dependencies it's a bit tricky to get the max refresh rate we can run the window on.
-            //         // Therefore we just go with 60fps - sorry 120hz+ folks!
-            //         let target_frametime = std::time::Duration::from_secs_f64(1.0 / 60.0);
-            //         let time_since_last_frame = last_update_inst.elapsed();
-            //         if time_since_last_frame >= target_frametime {
-            //             println!("Request Redraw");
-            //             app_context.window.request_redraw();
-            //             last_update_inst = std::time::Instant::now();
-            //         } else {
-            //             *control_flow = winit::event_loop::ControlFlow::WaitUntil(
-            //                 std::time::Instant::now() + target_frametime - time_since_last_frame,
-            //             );
-            //         }
-            //     }
+                app_context.window.request_redraw();
+            },
+            event::Event::RedrawRequested(_) => {
+                // Updates.
+                let duration = std::time::Instant::now() - last_time;
 
-            //     #[cfg(target_arch = "wasm32")]
-            //     window.request_redraw();
-            // }
+                // @todo: the app should render whenever it can.
+                // However, MacOS doesn't re-render properly when the window
+                // isn't focused.
+                last_time += duration;
 
-            // event::Event::RedrawRequested(_) => {
-            event::Event::MainEventsCleared => {
-                // // Record the frame time at the start of the frame.
-                let frame_start_time = std::time::Instant::now();
-
+                // println!("{:?}", last_time.elapsed());
                 let frame = surface
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
@@ -395,22 +397,23 @@ fn main() {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                // Updates.
-
-                let duration = std::time::Instant::now() - last_time;
-                last_time += duration;
-
                 // @todo: this assumes 60FPS, it shouldn't.
                 let delta =
                     (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
+                let mut encoder =
+                    app_context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
                 let mut renderer = renderer.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
-                renderer.accumulate = camera_controller.is_static();
-                renderer.blit_only = event_captured;
-                let encoder = renderer.render(&app_context.device, &view, &app_context.queue);
+                if !camera_controller.is_static() {
+                    renderer.reset_accumulation();
+                }
+                renderer.raytrace(&mut encoder, &app_context.queue);
+                renderer.blit(&mut encoder, &view);
+                renderer.accumulate = true;
 
                 let mut encoder_gui =
                     app_context
@@ -435,14 +438,46 @@ fn main() {
                     .submit([encoder.finish(), encoder_gui.finish()]);
 
                 frame.present();
-
-                // // Sleep for the remaining time to cap at 60Hz
-                // let elapsed = std::time::Instant::now().duration_since(frame_start_time);
-                // let remaining =
-                //     std::time::Duration::from_secs_f32(1.0 / 60.0).saturating_sub(elapsed);
-                // std::thread::sleep(remaining);
             }
             _ => {}
         }
     });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Spawner<'a> {
+    executor: async_executor::LocalExecutor<'a>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<'a> Spawner<'a> {
+    fn new() -> Self {
+        Self {
+            executor: async_executor::LocalExecutor::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn spawn_local(&self, future: impl Future<Output = ()> + 'a) {
+        self.executor.spawn(future).detach();
+    }
+
+    fn run_until_stalled(&self) {
+        while self.executor.try_tick() {}
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct Spawner {}
+
+#[cfg(target_arch = "wasm32")]
+impl Spawner {
+    fn new() -> Self {
+        Self {}
+    }
+
+    #[allow(dead_code)]
+    pub fn spawn_local(&self, future: impl Future<Output = ()> + 'static) {
+        wasm_bindgen_futures::spawn_local(future);
+    }
 }
