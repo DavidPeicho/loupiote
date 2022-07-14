@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::future::Future;
+use std::sync::{Arc, Mutex};
 
 use albedo_rtx::renderer::resources::LightGPU;
 use winit::{
@@ -42,7 +42,7 @@ pub struct ApplicationContext {
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
-    focused: bool
+    focused: bool,
 }
 
 enum EventLoopContext {}
@@ -71,8 +71,7 @@ async fn setup() -> WindowApp {
 
     let optional_features: wgpu::Features = wgpu::Features::default();
     let required_features: wgpu::Features =
-        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES |
-        wgpu::Features::CLEAR_COMMANDS;
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES | wgpu::Features::CLEAR_COMMANDS;
 
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
@@ -184,6 +183,7 @@ fn main() {
     let surface = unsafe { instance.create_surface(&window) };
     surface.configure(&device, &surface_config);
 
+    // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
@@ -227,7 +227,7 @@ fn main() {
         scene,
         device,
         queue,
-        focused: false
+        focused: false,
     };
     app_context.scene_gpu.upload_probe(
         &app_context.device,
@@ -271,7 +271,7 @@ fn main() {
     renderer.lock().unwrap().resize(
         &app_context.device,
         &app_context.scene_gpu,
-        (size.width.max(1), size.height.max(1))
+        (size.width.max(1), size.height.max(1)),
     );
 
     let spawner = Spawner::new();
@@ -308,7 +308,7 @@ fn main() {
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
                 surface.configure(&app_context.device, &surface_config);
-            },
+            }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
                 event::DeviceEvent::MouseMotion { delta } => {
@@ -379,7 +379,7 @@ fn main() {
                 spawner.run_until_stalled();
 
                 app_context.window.request_redraw();
-            },
+            }
             event::Event::RedrawRequested(_) => {
                 // Updates.
                 let duration = std::time::Instant::now() - last_time;
@@ -403,8 +403,9 @@ fn main() {
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
-                let mut encoder =
-                    app_context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                let mut encoder = app_context
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let mut renderer = renderer.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);

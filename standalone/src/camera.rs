@@ -63,6 +63,10 @@ impl CameraController {
         self.commands.remove(enumflags2::BitFlags::from(cmd));
     }
 
+    pub fn is_command_set(&self, cmd: CameraMoveCommand) -> bool {
+        self.commands.contains(cmd)
+    }
+
     pub fn update(&mut self, delta: f32) -> (glam::Vec3, glam::Vec3) {
         let mut right = self.direction.cross(glam::Vec3::Y).normalize();
         let mut up = right.cross(self.direction).normalize();
@@ -102,7 +106,8 @@ impl CameraController {
     }
 
     pub fn is_static(&self) -> bool {
-        self.rot_velocity.length_squared() < 0.00000001
+        !self.rotation_enabled
+            && self.rot_velocity.length_squared() < 0.00000001
             && self.move_velocity.length_squared() < 0.00000001
     }
 }

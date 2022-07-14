@@ -87,6 +87,7 @@ impl BindGroups {
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 &device,
                 &screen_resources.ray_buffer,
+                &scene_resources.bvh_buffer,
                 &screen_resources.intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.index_buffer,
@@ -165,7 +166,8 @@ impl Renderer {
             camera_uniforms: UniformBuffer::new(&device),
             global_uniforms: GlobalUniformsGPU {
                 frame_count: 1,
-                seed: 0
+                seed: 0,
+                ..Default::default()
             },
             global_uniforms_buffer: UniformBuffer::new(&device),
             nearest_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
@@ -218,14 +220,10 @@ impl Renderer {
         self.set_resources(device, scene_resources);
     }
 
-    pub fn raytrace(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
         const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
-        const STATIC_NUM_BOUNCES: usize = 5;
-        const MOVING_NUM_BOUNCES: usize = 2;
+        const STATIC_NUM_BOUNCES: u32 = 5;
+        const MOVING_NUM_BOUNCES: u32 = 2;
 
         let mut bindgroups = &self.fullscreen_bindgroups;
 
@@ -260,8 +258,9 @@ impl Renderer {
         // Step 2:
         //
         // Alternate between intersection & shading.
-        for _ in 0..nb_bounces {
+        for i in 0..nb_bounces {
             self.global_uniforms.seed += 1;
+            self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
                 .update(&queue, &self.global_uniforms);
             ComputePass::new(
@@ -290,11 +289,7 @@ impl Renderer {
         }
     }
 
-    pub fn blit(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView
-    ) {
+    pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         let bindgroups = if self.accumulate {
             &self.fullscreen_bindgroups
         } else {
