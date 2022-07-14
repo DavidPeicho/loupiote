@@ -4,6 +4,32 @@ use albedo_backend::GPUBuffer;
 use albedo_rtx::accel;
 use albedo_rtx::renderer;
 use albedo_rtx::renderer::resources::{BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, VertexGPU};
+use albedo_rtx::texture;
+
+pub struct ImageData {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl ImageData {
+    pub fn new(data: Vec<u8>, width: u32, height: u32) -> Self {
+        ImageData {
+            data,
+            width,
+            height,
+        }
+    }
+    pub fn data(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
 
 pub struct Scene<T: albedo_rtx::mesh::Mesh> {
     pub meshes: Vec<T>,
@@ -14,6 +40,7 @@ pub struct Scene<T: albedo_rtx::mesh::Mesh> {
     pub vertex_buffer: Vec<renderer::resources::VertexGPU>,
     pub index_buffer: Vec<u32>,
     pub lights: Vec<renderer::resources::LightGPU>,
+    pub images: Vec<ImageData>,
 }
 
 pub struct SceneGPU {
@@ -25,6 +52,7 @@ pub struct SceneGPU {
     pub light_buffer: GPUBuffer<LightGPU>,
     pub probe_texture: Option<wgpu::Texture>,
     pub probe_texture_view: Option<wgpu::TextureView>,
+    pub atlas: Option<texture::TextureAtlas>,
 }
 
 impl SceneGPU {
@@ -46,6 +74,7 @@ impl SceneGPU {
             light_buffer: GPUBuffer::from_data(&device, lights),
             probe_texture: None,
             probe_texture_view: None,
+            atlas: None,
         }
     }
 
@@ -72,6 +101,9 @@ impl SceneGPU {
         resources.index_buffer.update(&queue, &scene.index_buffer);
         resources.vertex_buffer.update(&queue, &scene.vertex_buffer);
         resources.light_buffer.update(&queue, &scene.lights);
+
+        // Upload texture atlas.
+        // @todo
         resources
     }
 

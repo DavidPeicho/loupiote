@@ -1,4 +1,4 @@
-use albedo_rtx::renderer;
+use albedo_rtx::renderer::{self, resources};
 use albedo_rtx::{
     accel::{BVHBuilder, SAHBuilder, BVH},
     mesh::Mesh,
@@ -7,7 +7,7 @@ use gltf::{self};
 use std::path::Path;
 
 use crate::errors::Error;
-use crate::scene::Scene;
+use crate::scene::{ImageData, Scene};
 
 pub struct ProxyMesh {
     positions: Vec<[f32; 3]>,
@@ -53,7 +53,7 @@ impl Mesh for ProxyMesh {
 }
 
 pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Error> {
-    let (doc, buffers, _) = match gltf::import(file_path) {
+    let (doc, buffers, images) = match gltf::import(file_path) {
         Ok(tuple) => tuple,
         Err(err) => {
             return match err {
@@ -96,11 +96,16 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Erro
 
     for material in doc.materials() {
         let pbr = material.pbr_metallic_roughness();
-        materials.push(renderer::resources::MaterialGPU::new(
-            pbr.base_color_factor().into(),
-            pbr.roughness_factor(),
-            pbr.metallic_factor(),
-        ));
+        materials.push(renderer::resources::MaterialGPU {
+            color: pbr.base_color_factor().into(),
+            roughness: pbr.roughness_factor(),
+            reflectivity: pbr.metallic_factor(),
+            albedo_texture: pbr
+                .base_color_texture()
+                .map(|c| c.texture().index() as u32)
+                .unwrap_or(resources::INVALID_INDEX),
+            ..Default::default()
+        });
     }
 
     let bvhs: Vec<BVH> = meshes
@@ -141,6 +146,11 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Erro
         }
     }
 
+    let mut images_buffer = Vec::with_capacity(images.len());
+    for (i, image) in images.into_iter().enumerate() {
+        images_buffer.push(ImageData::new(image.pixels, image.width, image.height));
+    }
+
     Ok(Scene {
         meshes,
         instances,
@@ -150,5 +160,6 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Erro
         vertex_buffer: gpu_resources.vertex_buffer,
         index_buffer: gpu_resources.index_buffer,
         lights: vec![],
+        images: images_buffer,
     })
 }

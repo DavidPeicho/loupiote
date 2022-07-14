@@ -184,7 +184,7 @@ fn main() {
     surface.configure(&device, &surface_config);
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
-    let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
+    let mut scene = load_gltf(&"./assets/simple-textures.glb").unwrap();
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
