@@ -96,6 +96,8 @@ impl BindGroups {
                 &scene_resources.materials_buffer,
                 scene_resources.probe_texture_view.as_ref().unwrap(),
                 &filtered_sampler_2d,
+                scene_resources.atlas.as_ref().unwrap().info(),
+                scene_resources.atlas.as_ref().unwrap().texture_view(),
                 global_uniforms,
             ),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(

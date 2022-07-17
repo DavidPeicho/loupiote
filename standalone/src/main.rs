@@ -7,12 +7,14 @@ use winit::{
     event_loop::EventLoop,
 };
 
-mod errors;
+mod device;
+use device::Device;
 
+mod errors;
 mod utils;
 
 mod gltf_loader;
-use gltf_loader::load_gltf;
+use gltf_loader::{load_gltf, GLTFLoaderOptions};
 
 mod gui;
 
@@ -28,7 +30,7 @@ use renderer::Renderer;
 struct WindowApp {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
-    device: wgpu::Device,
+    device: Device,
     window: winit::window::Window,
     event_loop: EventLoop<EventLoopContext>,
     surface: wgpu::Surface,
@@ -38,10 +40,11 @@ struct WindowApp {
 
 pub struct ApplicationContext {
     window: winit::window::Window,
-    device: wgpu::Device,
+    device: Device,
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
+    limits: wgpu::Limits,
     focused: bool,
 }
 
@@ -116,7 +119,7 @@ async fn setup() -> WindowApp {
     WindowApp {
         instance,
         adapter,
-        device,
+        device: Device::new(device),
         window,
         event_loop,
         surface,
@@ -181,10 +184,18 @@ fn main() {
     };
 
     let surface = unsafe { instance.create_surface(&window) };
-    surface.configure(&device, &surface_config);
+    surface.configure(&device.inner(), &surface_config);
+
+    let limits = device.inner().limits();
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
-    let mut scene = load_gltf(&"./assets/simple-textures.glb").unwrap();
+    let mut scene = load_gltf(
+        &"./assets/simple-textures.glb",
+        &GLTFLoaderOptions {
+            atlas_max_size: limits.max_texture_dimension_1d,
+        },
+    )
+    .unwrap();
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
@@ -220,17 +231,17 @@ fn main() {
         )
     };
 
-    //// Load HDRi enviromment.
     let mut app_context = ApplicationContext {
         window,
-        scene_gpu: SceneGPU::new_from_scene(&scene, &device, &queue),
+        scene_gpu: SceneGPU::new_from_scene(&scene, device.inner(), &queue),
         scene,
         device,
         queue,
+        limits,
         focused: false,
     };
     app_context.scene_gpu.upload_probe(
-        &app_context.device,
+        app_context.device.inner(),
         &app_context.queue,
         image_data_raw,
         metadata.width,
@@ -250,7 +261,11 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(&app_context.device, &app_context.window, &surface_config);
+    let mut gui = gui::GUI::new(
+        app_context.device.inner(),
+        &app_context.window,
+        &surface_config,
+    );
     gui.scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
     gui.scene_info_window
@@ -263,13 +278,13 @@ fn main() {
     }
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
-        &app_context.device,
+        app_context.device.inner(),
         (size.width, size.height),
         swapchain_format,
         &app_context.scene_gpu,
     )));
     renderer.lock().unwrap().resize(
-        &app_context.device,
+        app_context.device.inner(),
         &app_context.scene_gpu,
         (size.width.max(1), size.height.max(1)),
     );
@@ -288,7 +303,6 @@ fn main() {
                 // Some(true)
                 println!("Suspended");
             }
-
             event::Event::WindowEvent {
                 event:
                     event::WindowEvent::Resized(size)
@@ -302,12 +316,12 @@ fn main() {
                 surface_config.width = new_size.0;
                 surface_config.height = new_size.1;
                 renderer.lock().unwrap().resize(
-                    &app_context.device,
+                    app_context.device.inner(),
                     &app_context.scene_gpu,
                     new_size,
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
-                surface.configure(&app_context.device, &surface_config);
+                surface.configure(app_context.device.inner(), &surface_config);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -405,6 +419,7 @@ fn main() {
 
                 let mut encoder = app_context
                     .device
+                    .inner()
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let mut renderer = renderer.lock().unwrap();
@@ -416,12 +431,11 @@ fn main() {
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;
 
-                let mut encoder_gui =
-                    app_context
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("encoder-gui"),
-                        });
+                let mut encoder_gui = app_context.device.inner().create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor {
+                        label: Some("encoder-gui"),
+                    },
+                );
                 // Render GUI.
                 gui.performance_info_window
                     .set_global_performance(duration.as_millis() as f64);

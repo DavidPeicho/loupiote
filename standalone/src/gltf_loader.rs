@@ -1,13 +1,19 @@
 use albedo_rtx::renderer::{self, resources};
+use albedo_rtx::texture;
 use albedo_rtx::{
     accel::{BVHBuilder, SAHBuilder, BVH},
     mesh::Mesh,
 };
-use gltf::{self};
+
+use gltf::{self, image};
 use std::path::Path;
 
 use crate::errors::Error;
 use crate::scene::{ImageData, Scene};
+
+pub struct GLTFLoaderOptions {
+    pub atlas_max_size: u32,
+}
 
 pub struct ProxyMesh {
     positions: Vec<[f32; 3]>,
@@ -52,7 +58,44 @@ impl Mesh for ProxyMesh {
     }
 }
 
-pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Error> {
+fn rgba8_image(image: image::Data) -> ImageData {
+    let (components, depth) = match image.format {
+        image::Format::R8 => (1, 1),
+        image::Format::R8G8 => (2, 1),
+        image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
+        image::Format::R8G8B8A8 | image::Format::B8G8R8A8 => (4, 1),
+        image::Format::R16 => (1, 2),
+        image::Format::R16G16 => (2, 2),
+        image::Format::R16G16B16 => (3, 2),
+        image::Format::R16G16B16A16 => (4, 2),
+    };
+
+    // @todo: re-order channels if the format was BGR.
+    // @todo: 16bits will break.
+
+    // Allocate a new buffer if the data isn't RGBA8.
+    let pixels_count = image.width as usize * image.height as usize;
+    let buffer =
+        if image.format != image::Format::R8G8B8A8 && image.format != image::Format::B8G8R8A8 {
+            let mut buffer = vec![0 as u8; pixels_count * 4];
+            for i in 0..pixels_count {
+                let dst_start = i * 4;
+                let src_start = i * components;
+                buffer[dst_start..(dst_start + components)]
+                    .copy_from_slice(&image.pixels[src_start..(src_start + components)]);
+            }
+            buffer
+        } else {
+            image.pixels
+        };
+
+    ImageData::new(buffer, image.width, image.height)
+}
+
+pub fn load_gltf<P: AsRef<Path>>(
+    file_path: &P,
+    opts: &GLTFLoaderOptions,
+) -> Result<Scene<ProxyMesh>, Error> {
     let (doc, buffers, images) = match gltf::import(file_path) {
         Ok(tuple) => tuple,
         Err(err) => {
@@ -146,10 +189,18 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Erro
         }
     }
 
-    let mut images_buffer = Vec::with_capacity(images.len());
-    for (i, image) in images.into_iter().enumerate() {
-        images_buffer.push(ImageData::new(image.pixels, image.width, image.height));
-    }
+    let atlas = if images.len() > 0 {
+        println!("Creating GPU atlas...");
+        let mut atlas = texture::TextureAtlas::new(opts.atlas_max_size);
+        for image in images.into_iter() {
+            let i = rgba8_image(image);
+            atlas.add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
+        }
+        println!("Done!");
+        Some(atlas)
+    } else {
+        None
+    };
 
     Ok(Scene {
         meshes,
@@ -160,6 +211,6 @@ pub fn load_gltf<P: AsRef<Path>>(file_path: &P) -> Result<Scene<ProxyMesh>, Erro
         vertex_buffer: gpu_resources.vertex_buffer,
         index_buffer: gpu_resources.index_buffer,
         lights: vec![],
-        images: images_buffer,
+        atlas,
     })
 }
