@@ -278,13 +278,13 @@ fn main() {
     }
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
-        app_context.device.inner(),
+        &app_context.device,
         (size.width, size.height),
         swapchain_format,
         &app_context.scene_gpu,
     )));
     renderer.lock().unwrap().resize(
-        app_context.device.inner(),
+        &app_context.device,
         &app_context.scene_gpu,
         (size.width.max(1), size.height.max(1)),
     );
@@ -316,7 +316,7 @@ fn main() {
                 surface_config.width = new_size.0;
                 surface_config.height = new_size.1;
                 renderer.lock().unwrap().resize(
-                    app_context.device.inner(),
+                    &app_context.device,
                     &app_context.scene_gpu,
                     new_size,
                 );

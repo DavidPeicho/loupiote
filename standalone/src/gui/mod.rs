@@ -208,7 +208,7 @@ impl GUI {
             app_context.scene_gpu.probe_texture = probe_tex;
             app_context.scene_gpu.probe_texture_view = probe_tex_view;
             app_context.scene = scene;
-            renderer.set_resources(&app_context.device.inner(), &app_context.scene_gpu);
+            renderer.set_resources(&app_context.device, &app_context.scene_gpu);
         }
         Ok(())
     }
