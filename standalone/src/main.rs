@@ -427,6 +427,7 @@ fn main() {
                 if !camera_controller.is_static() {
                     renderer.reset_accumulation();
                 }
+                // renderer.reset_accumulation();
                 renderer.raytrace(&mut encoder, &app_context.queue);
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;

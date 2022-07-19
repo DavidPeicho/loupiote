@@ -58,13 +58,14 @@ impl TextureAtlasGPU {
         queue: &wgpu::Queue,
         atlas: &texture::TextureAtlas,
     ) -> TextureAtlasGPU {
+        let atlas_extent = wgpu::Extent3d {
+            width: atlas.size(),
+            height: atlas.size(),
+            depth_or_array_layers: atlas.layer_count() as u32,
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture Atlas"),
-            size: wgpu::Extent3d {
-                width: atlas.size(),
-                height: atlas.size(),
-                depth_or_array_layers: atlas.layer_count() as u32,
-            },
+            size: atlas_extent,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -86,10 +87,9 @@ impl TextureAtlasGPU {
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: NonZeroU32::new(4 * atlas.size()),
-                // rows_per_image: NonZeroU32::new(height),
-                rows_per_image: None,
+                rows_per_image: NonZeroU32::new(atlas.size()),
             },
-            wgpu::Extent3d::default(),
+            atlas_extent
         );
 
         let info_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -109,21 +109,25 @@ impl TextureAtlasGPU {
         let info_data_raw = unsafe {
             std::slice::from_raw_parts(atlas.textures().as_ptr() as *const u8, info_data_bytes)
         };
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &info_texture,
-                aspect: wgpu::TextureAspect::All,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-            },
-            info_data_raw,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
-                rows_per_image: None,
-            },
-            wgpu::Extent3d::default(),
-        );
+        // queue.write_texture(
+        //     wgpu::ImageCopyTexture {
+        //         texture: &info_texture,
+        //         aspect: wgpu::TextureAspect::All,
+        //         mip_level: 0,
+        //         origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+        //     },
+        //     info_data_raw,
+        //     wgpu::ImageDataLayout {
+        //         offset: 0,
+        //         bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
+        //         rows_per_image: None,
+        //     },
+        //     wgpu::Extent3d {
+        //         width,
+        //         height,
+        //         depth_or_array_layers: 1,
+        //     },
+        // );
 
         let mut buffer = GPUBuffer::from_data(&device, atlas.textures());
         buffer.update(&queue, atlas.textures());

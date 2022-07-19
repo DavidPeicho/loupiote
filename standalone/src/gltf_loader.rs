@@ -18,6 +18,7 @@ pub struct GLTFLoaderOptions {
 pub struct ProxyMesh {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
 }
 impl Mesh for ProxyMesh {
@@ -27,6 +28,9 @@ impl Mesh for ProxyMesh {
 
     fn normal(&self, index: u32) -> Option<&[f32; 3]> {
         self.normals.get(index as usize)
+    }
+    fn uv(&self, index: u32) -> Option<&[f32; 2]> {
+        self.uvs.get(index as usize)
     }
 
     // @todo: instead of reading vertex / buffer etc, why not ask user to fill
@@ -76,7 +80,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
     // Allocate a new buffer if the data isn't RGBA8.
     let pixels_count = image.width as usize * image.height as usize;
     let buffer =
-        if image.format != image::Format::R8G8B8A8 && image.format != image::Format::B8G8R8A8 {
+        if components != 4 {
             let mut buffer = vec![0 as u8; pixels_count * 4];
             for i in 0..pixels_count {
                 let dst_start = i * 4;
@@ -118,11 +122,15 @@ pub fn load_gltf<P: AsRef<Path>>(
         let mut positions: Vec<[f32; 3]> = Vec::new();
         let mut normals: Vec<[f32; 3]> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
+        let mut uvs: Vec<[f32; 2]> = Vec::new();
 
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
             positions.extend(reader.read_positions().unwrap());
             normals.extend(reader.read_normals().unwrap());
+            if let Some(texcoord) = reader.read_tex_coords(0) {
+                uvs.extend(texcoord.into_f32());
+            }
             indices.extend(
                 reader
                     .read_indices()
@@ -133,6 +141,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         meshes.push(ProxyMesh {
             positions,
             normals,
+            uvs,
             indices,
         });
     }

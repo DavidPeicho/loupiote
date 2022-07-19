@@ -204,7 +204,7 @@ impl Renderer {
 
     pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
         const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
-        const STATIC_NUM_BOUNCES: u32 = 5;
+        const STATIC_NUM_BOUNCES: u32 = 4;
         const MOVING_NUM_BOUNCES: u32 = 2;
 
         let mut bindgroups = &self.fullscreen_bindgroups;
