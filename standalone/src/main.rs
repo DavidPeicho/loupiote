@@ -7,6 +7,9 @@ use winit::{
     event_loop::EventLoop,
 };
 
+mod settings;
+use settings::{Settings};
+
 mod device;
 use device::Device;
 
@@ -38,6 +41,8 @@ struct WindowApp {
     size: winit::dpi::PhysicalSize<u32>,
 }
 
+// @todo: this might need to be split-up
+// depending on multi-threaded accesses.
 pub struct ApplicationContext {
     window: winit::window::Window,
     device: Device,
@@ -45,7 +50,7 @@ pub struct ApplicationContext {
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
     limits: wgpu::Limits,
-    focused: bool,
+    settings: Settings,
 }
 
 enum EventLoopContext {}
@@ -190,7 +195,8 @@ fn main() {
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     let mut scene = load_gltf(
-        &"./assets/simple-textures.glb",
+        // &"./assets/simple-textures.glb",
+        &"./assets/DamagedHelmet.glb",
         &GLTFLoaderOptions {
             atlas_max_size: limits.max_texture_dimension_1d,
         },
@@ -238,7 +244,7 @@ fn main() {
         device,
         queue,
         limits,
-        focused: false,
+        settings: Settings::new(),
     };
     app_context.scene_gpu.upload_probe(
         app_context.device.inner(),
@@ -424,10 +430,9 @@ fn main() {
 
                 let mut renderer = renderer.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
-                if !camera_controller.is_static() {
+                if !app_context.settings.accumulate || !camera_controller.is_static() {
                     renderer.reset_accumulation();
                 }
-                // renderer.reset_accumulation();
                 renderer.raytrace(&mut encoder, &app_context.queue);
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;

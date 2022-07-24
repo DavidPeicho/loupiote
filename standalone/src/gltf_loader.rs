@@ -156,6 +156,10 @@ pub fn load_gltf<P: AsRef<Path>>(
                 .base_color_texture()
                 .map(|c| c.texture().index() as u32)
                 .unwrap_or(resources::INVALID_INDEX),
+            mra_texture: pbr
+                .metallic_roughness_texture()
+                .map(|c| c.texture().index() as u32)
+                .unwrap_or(resources::INVALID_INDEX),
             ..Default::default()
         });
     }
@@ -203,6 +207,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         let mut atlas = texture::TextureAtlas::new(opts.atlas_max_size);
         for image in images.into_iter() {
             let i = rgba8_image(image);
+            // @todo: package metal / roughness / ao in single texture.
             atlas.add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
         }
         println!("Done!");

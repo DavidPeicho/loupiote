@@ -10,6 +10,7 @@ use crate::SceneGPU;
 use self::windows::ErrorWindow;
 mod views;
 mod windows;
+mod toolbar;
 
 pub struct GUI {
     platform: Platform,
@@ -164,6 +165,7 @@ impl GUI {
                         ui.ctx().memory().reset_areas();
                     }
                 });
+                toolbar::render_toolbar_gui(ui, app_context);
                 let screenshot_res = self.render_screenshot_menu(ui, app_context, renderer);
             });
         });
