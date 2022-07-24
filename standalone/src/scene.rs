@@ -97,13 +97,14 @@ impl TextureAtlasGPU {
         println!("\tLayers count = {}", atlas.layer_count());
         println!("}}");
 
+        let info_extent = wgpu::Extent3d {
+            width: atlas.textures().len() as u32,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
         let info_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Info Texture"),
-            size: wgpu::Extent3d {
-                width: atlas.textures().len() as u32,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
+            size: info_extent,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D1,
@@ -127,7 +128,7 @@ impl TextureAtlasGPU {
                 bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
                 rows_per_image: None,
             },
-            Default::default()
+            info_extent
         );
 
         let mut buffer = GPUBuffer::from_data(&device, atlas.textures());
