@@ -7,6 +7,9 @@ use winit::{
     event_loop::EventLoop,
 };
 
+mod commands;
+use commands::EditorCommand;
+
 mod settings;
 use settings::{Settings};
 
@@ -15,6 +18,9 @@ use device::Device;
 
 mod errors;
 mod utils;
+
+mod input_manager;
+use input_manager::{InputManager};
 
 mod gltf_loader;
 use gltf_loader::{load_gltf, GLTFLoaderOptions};
@@ -51,6 +57,16 @@ pub struct ApplicationContext {
     scene_gpu: SceneGPU,
     limits: wgpu::Limits,
     settings: Settings,
+}
+
+impl ApplicationContext {
+
+    fn run_command(&mut self, command: EditorCommand) {
+        match command {
+            EditorCommand::ToggleAccumulation => self.settings.accumulate = !self.settings.accumulate
+        }
+    }
+
 }
 
 enum EventLoopContext {}
@@ -295,6 +311,8 @@ fn main() {
         (size.width.max(1), size.height.max(1)),
     );
 
+    let input_manager = InputManager::new();
+
     let spawner = Spawner::new();
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
@@ -382,6 +400,9 @@ fn main() {
                                 camera_controller.unset_command(direction)
                             }
                         };
+                    }
+                    if let Some(cmd) = input_manager.process_keyboard_input(&virtual_keycode, &state) {
+                        app_context.run_command(cmd);
                     }
                 }
                 event::WindowEvent::CloseRequested => {

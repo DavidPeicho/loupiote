@@ -185,14 +185,15 @@ pub fn load_gltf<P: AsRef<Path>>(
         if let Some(mesh) = node.mesh() {
             let index = mesh.index();
             let offset_table = gpu_resources.offset_table.get(index).unwrap();
+            let model_to_world = glam::Mat4::from_cols_array_2d(&node.transform().matrix());
             for primitive in mesh.primitives() {
                 let material_index = match primitive.material().index() {
                     Some(v) => v as u32,
                     None => u32::MAX,
                 };
                 instances.push(renderer::resources::InstanceGPU {
-                    world_to_model: glam::Mat4::from_cols_array_2d(&node.transform().matrix())
-                        .inverse(),
+                    model_to_world,
+                    world_to_model: model_to_world.inverse(),
                     material_index,
                     bvh_root_index: offset_table.node(),
                     vertex_root_index: offset_table.vertex(),
