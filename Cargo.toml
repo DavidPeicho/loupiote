@@ -5,3 +5,6 @@ members = [
   "run-wasm"
 ]
 default-members = ["standalone"]
+
+[profile.dev]
+opt-level = 1

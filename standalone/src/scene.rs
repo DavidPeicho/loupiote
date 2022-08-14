@@ -3,7 +3,35 @@ use std::num::NonZeroU32;
 use albedo_backend::GPUBuffer;
 use albedo_rtx::accel;
 use albedo_rtx::renderer;
-use albedo_rtx::renderer::resources::{BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, VertexGPU};
+use albedo_rtx::renderer::resources::{
+    BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, TextureInfoGPU, VertexGPU,
+};
+use albedo_rtx::texture;
+
+pub struct ImageData {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl ImageData {
+    pub fn new(data: Vec<u8>, width: u32, height: u32) -> Self {
+        ImageData {
+            data,
+            width,
+            height,
+        }
+    }
+    pub fn data(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
 
 pub struct Scene<T: albedo_rtx::mesh::Mesh> {
     pub meshes: Vec<T>,
@@ -14,6 +42,118 @@ pub struct Scene<T: albedo_rtx::mesh::Mesh> {
     pub vertex_buffer: Vec<renderer::resources::VertexGPU>,
     pub index_buffer: Vec<u32>,
     pub lights: Vec<renderer::resources::LightGPU>,
+    pub atlas: Option<texture::TextureAtlas>,
+}
+
+pub struct TextureAtlasGPU {
+    pub texture: wgpu::Texture,
+    pub texture_view: wgpu::TextureView,
+    pub info_texture: wgpu::Texture,
+    pub info_view: wgpu::TextureView,
+}
+
+impl TextureAtlasGPU {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        atlas: &texture::TextureAtlas,
+    ) -> TextureAtlasGPU {
+        let atlas_extent = wgpu::Extent3d {
+            width: atlas.size(),
+            height: atlas.size(),
+            depth_or_array_layers: atlas.layer_count() as u32,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Texture Atlas"),
+            size: atlas_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+            },
+            atlas.data(),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(4 * atlas.size()),
+                rows_per_image: NonZeroU32::new(atlas.size()),
+            },
+            atlas_extent
+        );
+
+        println!("Texture Atlas: {{");
+        println!("\tTextures count = {}", atlas.textures().len());
+        println!("\tLayers count = {}", atlas.layer_count());
+        println!("}}");
+
+        let info_extent = wgpu::Extent3d {
+            width: atlas.textures().len() as u32,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let info_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Info Texture"),
+            size: info_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D1,
+            format: wgpu::TextureFormat::Rgba32Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        });
+        let info_data_bytes = atlas.textures().len() * std::mem::size_of::<TextureAtlasGPU>();
+        let info_data_raw = unsafe {
+            std::slice::from_raw_parts(atlas.textures().as_ptr() as *const u8, info_data_bytes)
+        };
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &info_texture,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+            },
+            info_data_raw,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
+                rows_per_image: None,
+            },
+            info_extent
+        );
+
+        let mut buffer = GPUBuffer::from_data(&device, atlas.textures());
+        buffer.update(&queue, atlas.textures());
+        TextureAtlasGPU {
+            texture: texture,
+            texture_view: view,
+            info_view: info_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            info_texture,
+        }
+    }
+
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+    pub fn texture_view(&self) -> &wgpu::TextureView {
+        &self.texture_view
+    }
+    pub fn info_texture(&self) -> &wgpu::Texture {
+        &self.info_texture
+    }
+    pub fn info_texture_view(&self) -> &wgpu::TextureView {
+        &self.info_view
+    }
+
 }
 
 pub struct SceneGPU {
@@ -25,6 +165,7 @@ pub struct SceneGPU {
     pub light_buffer: GPUBuffer<LightGPU>,
     pub probe_texture: Option<wgpu::Texture>,
     pub probe_texture_view: Option<wgpu::TextureView>,
+    pub atlas: Option<TextureAtlasGPU>,
 }
 
 impl SceneGPU {
@@ -46,6 +187,7 @@ impl SceneGPU {
             light_buffer: GPUBuffer::from_data(&device, lights),
             probe_texture: None,
             probe_texture_view: None,
+            atlas: None,
         }
     }
 
@@ -58,7 +200,7 @@ impl SceneGPU {
         T: albedo_rtx::mesh::Mesh,
     {
         let mut resources = SceneGPU::new(
-            &device,
+            device,
             &scene.instances,
             &scene.materials,
             &scene.node_buffer,
@@ -72,6 +214,14 @@ impl SceneGPU {
         resources.index_buffer.update(&queue, &scene.index_buffer);
         resources.vertex_buffer.update(&queue, &scene.vertex_buffer);
         resources.light_buffer.update(&queue, &scene.lights);
+
+        // Build atlas and copy to GPU.
+        if let Some(atlas) = scene.atlas.as_ref() {
+            resources.atlas = Some(TextureAtlasGPU::new(device, queue, atlas));
+        }
+
+        // Upload texture atlas.
+        // @todo
         resources
     }
 

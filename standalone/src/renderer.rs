@@ -7,6 +7,7 @@ use albedo_rtx::passes::{
 use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
 
 use crate::errors::Error;
+use crate::device::{Device};
 use crate::scene::SceneGPU;
 
 struct ScreenBoundResourcesGPU {
@@ -55,7 +56,7 @@ struct BindGroups {
 
 impl BindGroups {
     fn new(
-        device: &wgpu::Device,
+        device: &Device,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
         global_uniforms: &UniformBuffer<GlobalUniformsGPU>,
@@ -70,12 +71,12 @@ impl BindGroups {
     ) -> Self {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
-                &device,
+                device.inner(),
                 &screen_resources.ray_buffer,
                 camera_uniforms,
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
-                &device,
+                device.inner(),
                 &screen_resources.intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.bvh_buffer,
@@ -85,7 +86,7 @@ impl BindGroups {
                 &screen_resources.ray_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
-                &device,
+                device.inner(),
                 &screen_resources.ray_buffer,
                 &scene_resources.bvh_buffer,
                 &screen_resources.intersection_buffer,
@@ -95,17 +96,19 @@ impl BindGroups {
                 &scene_resources.light_buffer,
                 &scene_resources.materials_buffer,
                 scene_resources.probe_texture_view.as_ref().unwrap(),
-                &filtered_sampler_2d,
+                scene_resources.atlas.as_ref().unwrap().info_texture_view(),
+                scene_resources.atlas.as_ref().unwrap().texture_view(),
                 global_uniforms,
+                device.sampler_nearest()
             ),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
-                &device,
+                device.inner(),
                 &screen_resources.ray_buffer,
                 &screen_resources.render_target_view,
                 global_uniforms,
             ),
             blit_pass: blit_pass.create_frame_bind_groups(
-                &device,
+                device.inner(),
                 &screen_resources.render_target_view,
                 &render_target_sampler,
                 global_uniforms,
@@ -135,9 +138,6 @@ pub struct Renderer {
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
 
-    nearest_sampler: wgpu::Sampler,
-    linear_sampler: wgpu::Sampler,
-
     size: (u32, u32),
 
     pub downsample_factor: f32,
@@ -146,7 +146,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(
-        device: &wgpu::Device,
+        device: &Device,
         size: (u32, u32),
         swapchain_format: wgpu::TextureFormat,
         scene_resources: &SceneGPU,
@@ -157,43 +157,25 @@ impl Renderer {
             (size.1 as f32 * downsample_factor) as u32,
         );
         let mut renderer = Renderer {
-            screen_bound_resources: ScreenBoundResourcesGPU::new(&device, size),
+            screen_bound_resources: ScreenBoundResourcesGPU::new(device.inner(), size),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
-                &device,
+                device.inner(),
                 downsampled_size,
             ),
             camera: Default::default(),
-            camera_uniforms: UniformBuffer::new(&device),
+            camera_uniforms: UniformBuffer::new(device.inner()),
             global_uniforms: GlobalUniformsGPU {
                 frame_count: 1,
                 seed: 0,
                 ..Default::default()
             },
-            global_uniforms_buffer: UniformBuffer::new(&device),
-            nearest_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            }),
-            linear_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            }),
+            global_uniforms_buffer: UniformBuffer::new(device.inner()),
             passes: Passes {
-                rays: RayGeneratorPassDescriptor::new(&device),
-                intersection: IntersectorPassDescriptor::new(&device),
-                shading: ShadingPassDescriptor::new(&device),
-                accumulation: AccumulationPassDescriptor::new(&device),
-                blit: BlitPass::new(&device, swapchain_format),
+                rays: RayGeneratorPassDescriptor::new(device.inner()),
+                intersection: IntersectorPassDescriptor::new(device.inner()),
+                shading: ShadingPassDescriptor::new(device.inner()),
+                accumulation: AccumulationPassDescriptor::new(device.inner()),
+                blit: BlitPass::new(device.inner(), swapchain_format),
             },
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -211,18 +193,18 @@ impl Renderer {
         self.camera.up = up;
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU, size: (u32, u32)) {
+    pub fn resize(&mut self, device: &Device, scene_resources: &SceneGPU, size: (u32, u32)) {
         self.size = size;
         let downsample_size = self.get_downsampled_size();
-        self.screen_bound_resources = ScreenBoundResourcesGPU::new(&device, self.size);
+        self.screen_bound_resources = ScreenBoundResourcesGPU::new(device.inner(), self.size);
         self.downsampled_screen_bound_resources =
-            ScreenBoundResourcesGPU::new(&device, downsample_size);
+            ScreenBoundResourcesGPU::new(device.inner(), downsample_size);
         self.set_resources(device, scene_resources);
     }
 
     pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
         const WORKGROUP_SIZE: (u32, u32, u32) = (8, 8, 1);
-        const STATIC_NUM_BOUNCES: u32 = 5;
+        const STATIC_NUM_BOUNCES: u32 = 3;
         const MOVING_NUM_BOUNCES: u32 = 2;
 
         let mut bindgroups = &self.fullscreen_bindgroups;
@@ -319,15 +301,15 @@ impl Renderer {
         )
     }
 
-    pub fn set_resources(&mut self, device: &wgpu::Device, scene_resources: &SceneGPU) {
+    pub fn set_resources(&mut self, device: &Device, scene_resources: &SceneGPU) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
-            &device,
+            device,
             &self.screen_bound_resources,
             &scene_resources,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
-            &self.nearest_sampler,
-            &self.linear_sampler,
+            device.sampler_nearest(),
+            device.sampler_linear(),
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,
@@ -335,13 +317,13 @@ impl Renderer {
             &self.passes.blit,
         ));
         self.downsample_bindgroups = Some(BindGroups::new(
-            &device,
+            device,
             &self.downsampled_screen_bound_resources,
             &scene_resources,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
-            &self.nearest_sampler,
-            &self.linear_sampler,
+            device.sampler_nearest(),
+            device.sampler_linear(),
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,

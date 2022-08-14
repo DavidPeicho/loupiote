@@ -7,12 +7,23 @@ use winit::{
     event_loop::EventLoop,
 };
 
-mod errors;
+mod commands;
+use commands::EditorCommand;
 
+mod settings;
+use settings::{Settings};
+
+mod device;
+use device::Device;
+
+mod errors;
 mod utils;
 
+mod input_manager;
+use input_manager::{InputManager};
+
 mod gltf_loader;
-use gltf_loader::load_gltf;
+use gltf_loader::{load_gltf, GLTFLoaderOptions};
 
 mod gui;
 
@@ -28,7 +39,7 @@ use renderer::Renderer;
 struct WindowApp {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
-    device: wgpu::Device,
+    device: Device,
     window: winit::window::Window,
     event_loop: EventLoop<EventLoopContext>,
     surface: wgpu::Surface,
@@ -36,13 +47,26 @@ struct WindowApp {
     size: winit::dpi::PhysicalSize<u32>,
 }
 
+// @todo: this might need to be split-up
+// depending on multi-threaded accesses.
 pub struct ApplicationContext {
     window: winit::window::Window,
-    device: wgpu::Device,
+    device: Device,
     queue: wgpu::Queue,
     scene: Scene<gltf_loader::ProxyMesh>,
     scene_gpu: SceneGPU,
-    focused: bool,
+    limits: wgpu::Limits,
+    settings: Settings,
+}
+
+impl ApplicationContext {
+
+    fn run_command(&mut self, command: EditorCommand) {
+        match command {
+            EditorCommand::ToggleAccumulation => self.settings.accumulate = !self.settings.accumulate
+        }
+    }
+
 }
 
 enum EventLoopContext {}
@@ -116,7 +140,7 @@ async fn setup() -> WindowApp {
     WindowApp {
         instance,
         adapter,
-        device,
+        device: Device::new(device),
         window,
         event_loop,
         surface,
@@ -181,10 +205,19 @@ fn main() {
     };
 
     let surface = unsafe { instance.create_surface(&window) };
-    surface.configure(&device, &surface_config);
+    surface.configure(&device.inner(), &surface_config);
+
+    let limits = device.inner().limits();
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
-    let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
+    let mut scene = load_gltf(
+        // &"./assets/simple-textures.glb",
+        &"./assets/DamagedHelmet.glb",
+        &GLTFLoaderOptions {
+            atlas_max_size: limits.max_texture_dimension_1d,
+        },
+    )
+    .unwrap();
     scene.lights = vec![LightGPU::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
@@ -220,17 +253,17 @@ fn main() {
         )
     };
 
-    //// Load HDRi enviromment.
     let mut app_context = ApplicationContext {
         window,
-        scene_gpu: SceneGPU::new_from_scene(&scene, &device, &queue),
+        scene_gpu: SceneGPU::new_from_scene(&scene, device.inner(), &queue),
         scene,
         device,
         queue,
-        focused: false,
+        limits,
+        settings: Settings::new(),
     };
     app_context.scene_gpu.upload_probe(
-        &app_context.device,
+        app_context.device.inner(),
         &app_context.queue,
         image_data_raw,
         metadata.width,
@@ -250,7 +283,11 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(&app_context.device, &app_context.window, &surface_config);
+    let mut gui = gui::GUI::new(
+        app_context.device.inner(),
+        &app_context.window,
+        &surface_config,
+    );
     gui.scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
     gui.scene_info_window
@@ -274,6 +311,8 @@ fn main() {
         (size.width.max(1), size.height.max(1)),
     );
 
+    let input_manager = InputManager::new();
+
     let spawner = Spawner::new();
     event_loop.run(move |event, _, control_flow| {
         let event_captured = gui.handle_event(&event);
@@ -288,7 +327,6 @@ fn main() {
                 // Some(true)
                 println!("Suspended");
             }
-
             event::Event::WindowEvent {
                 event:
                     event::WindowEvent::Resized(size)
@@ -307,7 +345,7 @@ fn main() {
                     new_size,
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
-                surface.configure(&app_context.device, &surface_config);
+                surface.configure(app_context.device.inner(), &surface_config);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -363,6 +401,9 @@ fn main() {
                             }
                         };
                     }
+                    if let Some(cmd) = input_manager.process_keyboard_input(&virtual_keycode, &state) {
+                        app_context.run_command(cmd);
+                    }
                 }
                 event::WindowEvent::CloseRequested => {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
@@ -405,23 +446,23 @@ fn main() {
 
                 let mut encoder = app_context
                     .device
+                    .inner()
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let mut renderer = renderer.lock().unwrap();
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
-                if !camera_controller.is_static() {
+                if !app_context.settings.accumulate || !camera_controller.is_static() {
                     renderer.reset_accumulation();
                 }
                 renderer.raytrace(&mut encoder, &app_context.queue);
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;
 
-                let mut encoder_gui =
-                    app_context
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("encoder-gui"),
-                        });
+                let mut encoder_gui = app_context.device.inner().create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor {
+                        label: Some("encoder-gui"),
+                    },
+                );
                 // Render GUI.
                 gui.performance_info_window
                     .set_global_performance(duration.as_millis() as f64);

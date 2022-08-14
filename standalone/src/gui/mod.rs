@@ -4,11 +4,13 @@ use winit::event::{self};
 use albedo_rtx::renderer::resources;
 
 use crate::errors::Error;
-use crate::{gltf_loader, SceneGPU};
+use crate::gltf_loader::{load_gltf, GLTFLoaderOptions};
+use crate::SceneGPU;
 
 use self::windows::ErrorWindow;
 mod views;
 mod windows;
+mod toolbar;
 
 pub struct GUI {
     platform: Platform,
@@ -110,10 +112,14 @@ impl GUI {
         };
 
         self.render_pass
-            .add_textures(&app_context.device, &app_context.queue, &textures_delta)
+            .add_textures(
+                app_context.device.inner(),
+                &app_context.queue,
+                &textures_delta,
+            )
             .unwrap();
         self.render_pass.update_buffers(
-            &app_context.device,
+            &app_context.device.inner(),
             &app_context.queue,
             &paint_jobs,
             &screen_descriptor,
@@ -159,6 +165,7 @@ impl GUI {
                         ui.ctx().memory().reset_areas();
                     }
                 });
+                toolbar::render_toolbar_gui(ui, app_context);
                 let screenshot_res = self.render_screenshot_menu(ui, app_context, renderer);
             });
         });
@@ -181,7 +188,12 @@ impl GUI {
             }
         });
         if let Some(path) = file_path {
-            let mut scene = gltf_loader::load_gltf(&path)?;
+            let mut scene = load_gltf(
+                &path,
+                &GLTFLoaderOptions {
+                    atlas_max_size: app_context.limits.max_texture_dimension_1d,
+                },
+            )?;
             // @todo: parse from file.
             scene.lights = vec![resources::LightGPU::from_matrix(
                 glam::Mat4::from_scale_rotation_translation(
@@ -194,7 +206,7 @@ impl GUI {
             let probe_tex = std::mem::take(&mut app_context.scene_gpu.probe_texture);
             let probe_tex_view = std::mem::take(&mut app_context.scene_gpu.probe_texture_view);
             app_context.scene_gpu =
-                SceneGPU::new_from_scene(&scene, &app_context.device, &app_context.queue);
+                SceneGPU::new_from_scene(&scene, app_context.device.inner(), &app_context.queue);
             app_context.scene_gpu.probe_texture = probe_tex;
             app_context.scene_gpu.probe_texture_view = probe_tex_view;
             app_context.scene = scene;
@@ -221,8 +233,9 @@ impl GUI {
         }
         if let Some(path) = file_path {
             let size = renderer.get_size();
-            let bytes =
-                pollster::block_on(renderer.read_pixels(&app_context.device, &app_context.queue))?;
+            let bytes = pollster::block_on(
+                renderer.read_pixels(app_context.device.inner(), &app_context.queue),
+            )?;
             if let Some(output) =
                 image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(size.0, size.1, &bytes[..])
             {
