@@ -95,7 +95,7 @@ async fn setup() -> WindowApp {
 
     let optional_features: wgpu::Features = wgpu::Features::default();
     let required_features: wgpu::Features =
-        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES | wgpu::Features::CLEAR_COMMANDS;
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
@@ -195,7 +195,7 @@ fn main() {
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
 
-    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+    let swapchain_format = surface.get_supported_formats(&adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,

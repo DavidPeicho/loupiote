@@ -393,11 +393,13 @@ impl Renderer {
         queue.submit(Some(encoder.finish()));
 
         let buffer_slice = gpu_buffer.slice(..);
-        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
+        // Sets the buffer up for mapping, sending over the result of the mapping back to us when it is finished.
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
 
         device.poll(wgpu::Maintain::Wait);
 
-        if let Ok(()) = buffer_future.await {
+        if let Some(Ok(())) = receiver.receive().await {
             let padded_buffer = buffer_slice.get_mapped_range();
             let mut bytes: Vec<u8> = vec![0; alignment.unpadded_bytes_per_row * height as usize];
             // from the padded_buffer we write just the unpadded bytes into the image

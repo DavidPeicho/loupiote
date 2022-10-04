@@ -7,20 +7,18 @@ resolver = "2"
 
 [dependencies]
 hotwatch = "0.4.6"
-# winit = { git = "https://github.com/rust-windowing/winit" }
-winit = "0.26.1"
+winit = "0.27.0"
 enumflags2 = "0.7.1"
-wgpu = "0.12.0"
+wgpu = "0.13.0"
 glam = "0.20.2"
 gltf = "1.0.0"
-egui = { version = "0.17.0", default-features = false, features = [
-  "single_threaded",
-] }
+egui = { version = "0.19.0", default-features = false }
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
-egui_wgpu_backend = "0.17"
-egui_winit_platform = "0.14"
+egui_wgpu_backend = "0.19"
+egui_winit_platform = "0.16"
 rfd = "0.8.1"
 pollster = "0.2"
+futures-intrusive = "0.4"
 albedo_backend = { path = "../../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
 albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
 
@@ -28,7 +26,7 @@ albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-
 async-executor = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3.53", features = [
+web-sys = { version = "0.3.60", features = [
     "Document",
     "Navigator",
     "Node",
@@ -51,12 +49,10 @@ web-sys = { version = "0.3.53", features = [
     "GpuBufferBindingLayout",
     "GpuBufferBindingType",
     "GpuBufferDescriptor",
-    "GpuBufferUsage",
     "GpuCanvasContext",
     "GpuCanvasConfiguration",
     "GpuColorDict",
     "GpuColorTargetState",
-    "GpuColorWrite",
     "GpuCommandBuffer",
     "GpuCommandBufferDescriptor",
     "GpuCommandEncoder",
@@ -86,7 +82,6 @@ web-sys = { version = "0.3.53", features = [
     "GpuImageDataLayout",
     "GpuIndexFormat",
     "GpuLoadOp",
-    "GpuMapMode",
     "GpuMultisampleState",
     "GpuObjectDescriptorBase",
     "GpuOrigin2dDict",
@@ -95,7 +90,6 @@ web-sys = { version = "0.3.53", features = [
     "GpuPipelineDescriptorBase",
     "GpuPipelineLayout",
     "GpuPipelineLayoutDescriptor",
-    "GpuPipelineStatisticName",
     "GpuPowerPreference",
     "GpuPrimitiveState",
     "GpuPrimitiveTopology",
@@ -121,7 +115,6 @@ web-sys = { version = "0.3.53", features = [
     "GpuSamplerDescriptor",
     "GpuShaderModule",
     "GpuShaderModuleDescriptor",
-    "GpuShaderStage",
     "GpuStencilFaceState",
     "GpuStencilOperation",
     "GpuStorageTextureAccess",
@@ -136,7 +129,6 @@ web-sys = { version = "0.3.53", features = [
     "GpuTextureDimension",
     "GpuTextureFormat",
     "GpuTextureSampleType",
-    "GpuTextureUsage",
     "GpuTextureView",
     "GpuTextureViewDescriptor",
     "GpuTextureViewDimension",
