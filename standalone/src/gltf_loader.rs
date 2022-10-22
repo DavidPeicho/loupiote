@@ -1,15 +1,16 @@
 use albedo_rtx::renderer::{self, resources};
 use albedo_rtx::texture;
-use albedo_rtx::{
-    accel::{BVHBuilder, SAHBuilder, BVH},
-    mesh::Mesh,
+use albedo_bvh::{
+    builders::{SAHBuilder, BVH},
+    BLASArray,
+    Mesh,
 };
 
 use gltf::{self, image};
 use std::path::Path;
 
 use crate::errors::Error;
-use crate::scene::{ImageData, Scene};
+use crate::scene::{ImageData, Scene, Vertex};
 
 pub struct GLTFLoaderOptions {
     pub atlas_max_size: u32,
@@ -21,32 +22,16 @@ pub struct ProxyMesh {
     uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
 }
-impl Mesh for ProxyMesh {
+impl Mesh<Vertex> for ProxyMesh {
     fn index(&self, index: u32) -> Option<&u32> {
         self.indices.get(index as usize)
     }
 
-    fn normal(&self, index: u32) -> Option<&[f32; 3]> {
-        self.normals.get(index as usize)
-    }
-    fn uv(&self, index: u32) -> Option<&[f32; 2]> {
-        self.uvs.get(index as usize)
-    }
-
-    // @todo: instead of reading vertex / buffer etc, why not ask user to fill
-    // our data stucture?
-    // If data are linear, user can do a memcpy, otherwise he must memcpy with
-    // stride, but at least it's up to him and can give a nice perf boost.
-
-    fn has_normal(&self) -> bool {
-        // @todo: do not assume model has normals.
-        true
-    }
-    fn has_tangent(&self) -> bool {
-        false
-    }
-    fn has_uv0(&self) -> bool {
-        false
+    fn vertex(&self, index: u32) -> Vertex {
+        Vertex {
+            position: self.positions[index],
+            normal: self.positions[index],
+        }
     }
 
     fn vertex_count(&self) -> u32 {
@@ -164,18 +149,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         });
     }
 
-    let bvhs: Vec<BVH> = meshes
-        .iter()
-        .map(|mesh| {
-            // @todo: allow user to choose builder.
-            let mut builder = SAHBuilder::new();
-            let mut bvh = builder.build(mesh).unwrap();
-            bvh.flatten();
-            bvh
-        })
-        .collect();
-
-    let gpu_resources = renderer::utils::build_acceleration_structure_gpu(&bvhs, &meshes);
+    let blas = BLASArray::new(&meshes)?;
 
     for node in doc.nodes() {
         // @todo: handle scene graph.

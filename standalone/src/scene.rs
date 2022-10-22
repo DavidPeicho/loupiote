@@ -1,12 +1,21 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::GPUBuffer;
-use albedo_rtx::accel;
+use albedo_bvh::{BVH, Mesh};
 use albedo_rtx::renderer;
 use albedo_rtx::renderer::resources::{
     BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, TextureInfoGPU, VertexGPU,
 };
 use albedo_rtx::texture;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Vertex {
+    position: [f32; 4],
+    normal: [f32; 4],
+}
+unsafe impl bytemuck::Pod for Vertex {}
+unsafe impl bytemuck::Zeroable for Vertex {}
 
 pub struct ImageData {
     data: Vec<u8>,
@@ -33,9 +42,9 @@ impl ImageData {
     }
 }
 
-pub struct Scene<T: albedo_rtx::mesh::Mesh> {
+pub struct Scene<T: Mesh<Vertex>> {
     pub meshes: Vec<T>,
-    pub bvhs: Vec<accel::BVH>,
+    pub bvhs: Vec<BVH>,
     pub instances: Vec<renderer::resources::InstanceGPU>,
     pub materials: Vec<renderer::resources::MaterialGPU>,
     pub node_buffer: Vec<renderer::resources::BVHNodeGPU>,
