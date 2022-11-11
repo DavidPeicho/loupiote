@@ -1,12 +1,22 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::GPUBuffer;
-use albedo_rtx::accel;
+use albedo_bvh::{Mesh, BLASArray, FlatNode};
 use albedo_rtx::renderer;
 use albedo_rtx::renderer::resources::{
-    BVHNodeGPU, InstanceGPU, LightGPU, MaterialGPU, TextureInfoGPU, VertexGPU,
+    InstanceGPU, LightGPU, MaterialGPU
 };
 use albedo_rtx::texture;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Vertex {
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+}
+unsafe impl bytemuck::Pod for Vertex {}
+unsafe impl bytemuck::Zeroable for Vertex {}
+impl albedo_bvh::Vertex for Vertex {}
 
 pub struct ImageData {
     data: Vec<u8>,
@@ -33,14 +43,11 @@ impl ImageData {
     }
 }
 
-pub struct Scene<T: albedo_rtx::mesh::Mesh> {
+pub struct Scene<T: Mesh<Vertex>> {
     pub meshes: Vec<T>,
-    pub bvhs: Vec<accel::BVH>,
     pub instances: Vec<renderer::resources::InstanceGPU>,
     pub materials: Vec<renderer::resources::MaterialGPU>,
-    pub node_buffer: Vec<renderer::resources::BVHNodeGPU>,
-    pub vertex_buffer: Vec<renderer::resources::VertexGPU>,
-    pub index_buffer: Vec<u32>,
+    pub blas: BLASArray<Vertex>,
     pub lights: Vec<renderer::resources::LightGPU>,
     pub atlas: Option<texture::TextureAtlas>,
 }
@@ -159,9 +166,9 @@ impl TextureAtlasGPU {
 pub struct SceneGPU {
     pub instance_buffer: GPUBuffer<InstanceGPU>,
     pub materials_buffer: GPUBuffer<MaterialGPU>,
-    pub bvh_buffer: GPUBuffer<BVHNodeGPU>,
+    pub bvh_buffer: GPUBuffer<FlatNode>,
     pub index_buffer: GPUBuffer<u32>,
-    pub vertex_buffer: GPUBuffer<VertexGPU>,
+    pub vertex_buffer: GPUBuffer<Vertex>,
     pub light_buffer: GPUBuffer<LightGPU>,
     pub probe_texture: Option<wgpu::Texture>,
     pub probe_texture_view: Option<wgpu::TextureView>,
@@ -173,9 +180,9 @@ impl SceneGPU {
         device: &wgpu::Device,
         instances: &[InstanceGPU],
         materials: &[MaterialGPU],
-        bvh: &[BVHNodeGPU],
+        bvh: &[FlatNode],
         indices: &[u32],
-        vertices: &[VertexGPU],
+        vertices: &[Vertex],
         lights: &[LightGPU],
     ) -> Self {
         SceneGPU {
@@ -197,22 +204,22 @@ impl SceneGPU {
         queue: &wgpu::Queue,
     ) -> SceneGPU
     where
-        T: albedo_rtx::mesh::Mesh,
+        T: Mesh<Vertex>,
     {
         let mut resources = SceneGPU::new(
             device,
             &scene.instances,
             &scene.materials,
-            &scene.node_buffer,
-            &scene.index_buffer,
-            &scene.vertex_buffer,
+            &scene.blas.nodes,
+            &scene.blas.indices,
+            &scene.blas.vertices,
             &scene.lights,
         );
         resources.instance_buffer.update(&queue, &scene.instances);
         resources.materials_buffer.update(&queue, &scene.materials);
-        resources.bvh_buffer.update(&queue, &scene.node_buffer);
-        resources.index_buffer.update(&queue, &scene.index_buffer);
-        resources.vertex_buffer.update(&queue, &scene.vertex_buffer);
+        resources.bvh_buffer.update(&queue, &scene.blas.nodes);
+        resources.index_buffer.update(&queue, &scene.blas.indices);
+        resources.vertex_buffer.update(&queue, &scene.blas.vertices);
         resources.light_buffer.update(&queue, &scene.lights);
 
         // Build atlas and copy to GPU.

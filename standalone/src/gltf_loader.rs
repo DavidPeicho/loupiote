@@ -1,15 +1,16 @@
 use albedo_rtx::renderer::{self, resources};
 use albedo_rtx::texture;
-use albedo_rtx::{
-    accel::{BVHBuilder, SAHBuilder, BVH},
-    mesh::Mesh,
+use albedo_bvh::{
+    builders,
+    BLASArray,
+    Mesh,
 };
 
 use gltf::{self, image};
 use std::path::Path;
 
 use crate::errors::Error;
-use crate::scene::{ImageData, Scene};
+use crate::scene::{ImageData, Scene, Vertex};
 
 pub struct GLTFLoaderOptions {
     pub atlas_max_size: u32,
@@ -21,32 +22,19 @@ pub struct ProxyMesh {
     uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
 }
-impl Mesh for ProxyMesh {
+impl Mesh<Vertex> for ProxyMesh {
     fn index(&self, index: u32) -> Option<&u32> {
         self.indices.get(index as usize)
     }
 
-    fn normal(&self, index: u32) -> Option<&[f32; 3]> {
-        self.normals.get(index as usize)
-    }
-    fn uv(&self, index: u32) -> Option<&[f32; 2]> {
-        self.uvs.get(index as usize)
-    }
-
-    // @todo: instead of reading vertex / buffer etc, why not ask user to fill
-    // our data stucture?
-    // If data are linear, user can do a memcpy, otherwise he must memcpy with
-    // stride, but at least it's up to him and can give a nice perf boost.
-
-    fn has_normal(&self) -> bool {
-        // @todo: do not assume model has normals.
-        true
-    }
-    fn has_tangent(&self) -> bool {
-        false
-    }
-    fn has_uv0(&self) -> bool {
-        false
+    fn vertex(&self, index: u32) -> Vertex {
+        let pos = self.positions[index as usize];
+        let normal = self.normals[index as usize];
+        let uv = self.uvs[index as usize];
+        Vertex {
+            position: [pos[0], pos[1], pos[2], uv[0]],
+            normal: [normal[0], normal[1], normal[2], uv[1]],
+        }
     }
 
     fn vertex_count(&self) -> u32 {
@@ -63,7 +51,7 @@ impl Mesh for ProxyMesh {
 }
 
 fn rgba8_image(image: image::Data) -> ImageData {
-    let (components, depth) = match image.format {
+    let (components, _) = match image.format {
         image::Format::R8 => (1, 1),
         image::Format::R8G8 => (2, 1),
         image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
@@ -164,18 +152,9 @@ pub fn load_gltf<P: AsRef<Path>>(
         });
     }
 
-    let bvhs: Vec<BVH> = meshes
-        .iter()
-        .map(|mesh| {
-            // @todo: allow user to choose builder.
-            let mut builder = SAHBuilder::new();
-            let mut bvh = builder.build(mesh).unwrap();
-            bvh.flatten();
-            bvh
-        })
-        .collect();
-
-    let gpu_resources = renderer::utils::build_acceleration_structure_gpu(&bvhs, &meshes);
+    let mut builder = builders::SAHBuilder::new();
+    let blas = BLASArray::new(&meshes, &mut builder)
+        .or_else(|e| Err(Error::AccelBuild(e.into())))?;
 
     for node in doc.nodes() {
         // @todo: handle scene graph.
@@ -184,7 +163,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         // provided.
         if let Some(mesh) = node.mesh() {
             let index = mesh.index();
-            let offset_table = gpu_resources.offset_table.get(index).unwrap();
+            let entry = blas.entries.get(index).unwrap();
             let model_to_world = glam::Mat4::from_cols_array_2d(&node.transform().matrix());
             for primitive in mesh.primitives() {
                 let material_index = match primitive.material().index() {
@@ -195,9 +174,9 @@ pub fn load_gltf<P: AsRef<Path>>(
                     model_to_world,
                     world_to_model: model_to_world.inverse(),
                     material_index,
-                    bvh_root_index: offset_table.node(),
-                    vertex_root_index: offset_table.vertex(),
-                    index_root_index: offset_table.index(),
+                    bvh_root_index: entry.node,
+                    vertex_root_index: entry.vertex,
+                    index_root_index: entry.index,
                 });
             }
         }
@@ -221,10 +200,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         meshes,
         instances,
         materials,
-        bvhs,
-        node_buffer: gpu_resources.nodes_buffer,
-        vertex_buffer: gpu_resources.vertex_buffer,
-        index_buffer: gpu_resources.index_buffer,
+        blas,
         lights: vec![],
         atlas,
     })

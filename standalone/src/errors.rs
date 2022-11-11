@@ -5,6 +5,7 @@ pub enum Error {
     FileNotFound(String),
     TextureToBufferReadFail,
     ImageError(ImageError),
+    AccelBuild(String),
 }
 
 impl From<Error> for String {
@@ -17,6 +18,7 @@ impl From<Error> for String {
                 format!("file not found: {:?}", e)
             }
             Error::TextureToBufferReadFail => String::from("failed to read pixels from GPU to CPU"),
+            Error::AccelBuild(reason) => format!("failed to build acceleration structure: {:?}", reason),
         }
     }
 }
