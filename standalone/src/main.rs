@@ -211,8 +211,8 @@ fn main() {
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     let mut scene = load_gltf(
-        // &"./assets/simple-textures.glb",
         &"./assets/DamagedHelmet.glb",
+        // &"./assets/cornell-box.glb",
         &GLTFLoaderOptions {
             atlas_max_size: limits.max_texture_dimension_1d,
         },
@@ -291,7 +291,7 @@ fn main() {
     gui.scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
     gui.scene_info_window
-        .set_bvh_nodes_count(app_context.scene.node_buffer.len());
+        .set_bvh_nodes_count(app_context.scene.blas.nodes.len());
 
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -1,7 +1,7 @@
 use albedo_rtx::renderer::{self, resources};
 use albedo_rtx::texture;
 use albedo_bvh::{
-    builders::{SAHBuilder, BVH},
+    builders,
     BLASArray,
     Mesh,
 };
@@ -28,9 +28,12 @@ impl Mesh<Vertex> for ProxyMesh {
     }
 
     fn vertex(&self, index: u32) -> Vertex {
+        let pos = self.positions[index as usize];
+        let normal = self.normals[index as usize];
+        let uv = self.uvs[index as usize];
         Vertex {
-            position: self.positions[index],
-            normal: self.positions[index],
+            position: [pos[0], pos[1], pos[2], uv[0]],
+            normal: [normal[0], normal[1], normal[2], uv[1]],
         }
     }
 
@@ -48,7 +51,7 @@ impl Mesh<Vertex> for ProxyMesh {
 }
 
 fn rgba8_image(image: image::Data) -> ImageData {
-    let (components, depth) = match image.format {
+    let (components, _) = match image.format {
         image::Format::R8 => (1, 1),
         image::Format::R8G8 => (2, 1),
         image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
@@ -149,7 +152,9 @@ pub fn load_gltf<P: AsRef<Path>>(
         });
     }
 
-    let blas = BLASArray::new(&meshes)?;
+    let mut builder = builders::SAHBuilder::new();
+    let blas = BLASArray::new(&meshes, &mut builder)
+        .or_else(|e| Err(Error::AccelBuild(e.into())))?;
 
     for node in doc.nodes() {
         // @todo: handle scene graph.
@@ -158,7 +163,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         // provided.
         if let Some(mesh) = node.mesh() {
             let index = mesh.index();
-            let offset_table = gpu_resources.offset_table.get(index).unwrap();
+            let entry = blas.entries.get(index).unwrap();
             let model_to_world = glam::Mat4::from_cols_array_2d(&node.transform().matrix());
             for primitive in mesh.primitives() {
                 let material_index = match primitive.material().index() {
@@ -169,9 +174,9 @@ pub fn load_gltf<P: AsRef<Path>>(
                     model_to_world,
                     world_to_model: model_to_world.inverse(),
                     material_index,
-                    bvh_root_index: offset_table.node(),
-                    vertex_root_index: offset_table.vertex(),
-                    index_root_index: offset_table.index(),
+                    bvh_root_index: entry.node,
+                    vertex_root_index: entry.vertex,
+                    index_root_index: entry.index,
                 });
             }
         }
@@ -195,10 +200,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         meshes,
         instances,
         materials,
-        bvhs,
-        node_buffer: gpu_resources.nodes_buffer,
-        vertex_buffer: gpu_resources.vertex_buffer,
-        index_buffer: gpu_resources.index_buffer,
+        blas,
         lights: vec![],
         atlas,
     })
