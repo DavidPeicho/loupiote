@@ -1,12 +1,9 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::GPUBuffer;
-use albedo_bvh::{Mesh, BLASArray, FlatNode};
-use albedo_rtx::renderer;
-use albedo_rtx::renderer::resources::{
-    InstanceGPU, LightGPU, MaterialGPU
-};
+use albedo_bvh::{BLASArray, FlatNode, Mesh};
 use albedo_rtx::texture;
+use albedo_rtx::uniforms::{Instance, Light, Material};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -45,10 +42,10 @@ impl ImageData {
 
 pub struct Scene<T: Mesh<Vertex>> {
     pub meshes: Vec<T>,
-    pub instances: Vec<renderer::resources::InstanceGPU>,
-    pub materials: Vec<renderer::resources::MaterialGPU>,
+    pub instances: Vec<Instance>,
+    pub materials: Vec<Material>,
     pub blas: BLASArray<Vertex>,
-    pub lights: Vec<renderer::resources::LightGPU>,
+    pub lights: Vec<Light>,
     pub atlas: Option<texture::TextureAtlas>,
 }
 
@@ -96,7 +93,7 @@ impl TextureAtlasGPU {
                 bytes_per_row: NonZeroU32::new(4 * atlas.size()),
                 rows_per_image: NonZeroU32::new(atlas.size()),
             },
-            atlas_extent
+            atlas_extent,
         );
 
         println!("Texture Atlas: {{");
@@ -135,7 +132,7 @@ impl TextureAtlasGPU {
                 bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
                 rows_per_image: None,
             },
-            info_extent
+            info_extent,
         );
 
         let mut buffer = GPUBuffer::from_data(&device, atlas.textures());
@@ -160,16 +157,15 @@ impl TextureAtlasGPU {
     pub fn info_texture_view(&self) -> &wgpu::TextureView {
         &self.info_view
     }
-
 }
 
 pub struct SceneGPU {
-    pub instance_buffer: GPUBuffer<InstanceGPU>,
-    pub materials_buffer: GPUBuffer<MaterialGPU>,
+    pub instance_buffer: GPUBuffer<Instance>,
+    pub materials_buffer: GPUBuffer<Material>,
     pub bvh_buffer: GPUBuffer<FlatNode>,
     pub index_buffer: GPUBuffer<u32>,
     pub vertex_buffer: GPUBuffer<Vertex>,
-    pub light_buffer: GPUBuffer<LightGPU>,
+    pub light_buffer: GPUBuffer<Light>,
     pub probe_texture: Option<wgpu::Texture>,
     pub probe_texture_view: Option<wgpu::TextureView>,
     pub atlas: Option<TextureAtlasGPU>,
@@ -178,12 +174,12 @@ pub struct SceneGPU {
 impl SceneGPU {
     pub fn new(
         device: &wgpu::Device,
-        instances: &[InstanceGPU],
-        materials: &[MaterialGPU],
+        instances: &[Instance],
+        materials: &[Material],
         bvh: &[FlatNode],
         indices: &[u32],
         vertices: &[Vertex],
-        lights: &[LightGPU],
+        lights: &[Light],
     ) -> Self {
         SceneGPU {
             instance_buffer: GPUBuffer::from_data(&device, instances),
