@@ -61,7 +61,7 @@ impl BindGroups {
         render_target_sampler: &wgpu::Sampler,
         filtered_sampler_2d: &wgpu::Sampler,
         ray_pass_desc: &passes::RayPass,
-        intersector_pass_desc: &passes::IntersectorPassDescriptor,
+        intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPassDescriptor,
         accumulation_pass_desc: &passes::AccumulationPassDescriptor,
         blit_pass: &passes::BlitPass,
@@ -116,7 +116,7 @@ impl BindGroups {
 
 pub struct Passes {
     pub rays: passes::RayPass,
-    pub intersection: passes::IntersectorPassDescriptor,
+    pub intersection: passes::IntersectorPass,
     pub shading: passes::ShadingPassDescriptor,
     pub accumulation: passes::AccumulationPassDescriptor,
     pub blit: passes::BlitPass,
@@ -169,7 +169,7 @@ impl Renderer {
             global_uniforms_buffer: UniformBuffer::new(device.inner()),
             passes: Passes {
                 rays: passes::RayPass::new(device.inner(), None),
-                intersection: passes::IntersectorPassDescriptor::new(device.inner()),
+                intersection: passes::IntersectorPass::new(device.inner()),
                 shading: passes::ShadingPassDescriptor::new(device.inner()),
                 accumulation: passes::AccumulationPassDescriptor::new(device.inner()),
                 blit: passes::BlitPass::new(device.inner(), swapchain_format),
@@ -242,12 +242,11 @@ impl Renderer {
             self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
                 .update(&queue, &self.global_uniforms);
-            ComputePass::new(
+            self.passes.intersection.dispatch(
                 encoder,
-                &self.passes.intersection,
                 &bindgroups.as_ref().unwrap().intersection_pass,
-            )
-            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                dispatch_workoup_size,
+            );
             ComputePass::new(
                 encoder,
                 &self.passes.shading,
