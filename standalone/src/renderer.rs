@@ -63,7 +63,7 @@ impl BindGroups {
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPassDescriptor,
-        accumulation_pass_desc: &passes::AccumulationPassDescriptor,
+        accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
     ) -> Self {
         BindGroups {
@@ -118,7 +118,7 @@ pub struct Passes {
     pub rays: passes::RayPass,
     pub intersection: passes::IntersectorPass,
     pub shading: passes::ShadingPassDescriptor,
-    pub accumulation: passes::AccumulationPassDescriptor,
+    pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
 }
 
@@ -169,9 +169,9 @@ impl Renderer {
             global_uniforms_buffer: UniformBuffer::new(device.inner()),
             passes: Passes {
                 rays: passes::RayPass::new(device.inner(), None),
-                intersection: passes::IntersectorPass::new(device.inner()),
+                intersection: passes::IntersectorPass::new(device.inner(), None),
                 shading: passes::ShadingPassDescriptor::new(device.inner()),
-                accumulation: passes::AccumulationPassDescriptor::new(device.inner()),
+                accumulation: passes::AccumulationPass::new(device.inner(), None),
                 blit: passes::BlitPass::new(device.inner(), swapchain_format),
             },
             fullscreen_bindgroups: None,
@@ -256,12 +256,11 @@ impl Renderer {
         }
 
         // Accumulation.
-        ComputePass::new(
+        self.passes.accumulation.dispatch(
             encoder,
-            &self.passes.accumulation,
             &bindgroups.as_ref().unwrap().accumulate_pass,
-        )
-        .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+            dispatch_workoup_size,
+        );
 
         if self.accumulate {
             self.global_uniforms.frame_count += 1;
