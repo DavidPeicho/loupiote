@@ -62,7 +62,7 @@ impl BindGroups {
         filtered_sampler_2d: &wgpu::Sampler,
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
-        shading_pass_desc: &passes::ShadingPassDescriptor,
+        shading_pass_desc: &passes::ShadingPass,
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
     ) -> Self {
@@ -117,7 +117,7 @@ impl BindGroups {
 pub struct Passes {
     pub rays: passes::RayPass,
     pub intersection: passes::IntersectorPass,
-    pub shading: passes::ShadingPassDescriptor,
+    pub shading: passes::ShadingPass,
     pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
 }
@@ -170,7 +170,7 @@ impl Renderer {
             passes: Passes {
                 rays: passes::RayPass::new(device.inner(), None),
                 intersection: passes::IntersectorPass::new(device.inner(), None),
-                shading: passes::ShadingPassDescriptor::new(device.inner()),
+                shading: passes::ShadingPass::new(device.inner()),
                 accumulation: passes::AccumulationPass::new(device.inner(), None),
                 blit: passes::BlitPass::new(device.inner(), swapchain_format),
             },
@@ -247,12 +247,11 @@ impl Renderer {
                 &bindgroups.as_ref().unwrap().intersection_pass,
                 dispatch_workoup_size,
             );
-            ComputePass::new(
+            self.passes.shading.dispatch(
                 encoder,
-                &self.passes.shading,
                 &bindgroups.as_ref().unwrap().shading_pass,
-            )
-            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                dispatch_workoup_size
+            );
         }
 
         // Accumulation.
