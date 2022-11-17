@@ -1,18 +1,15 @@
 use albedo_backend::{ComputePass, GPUBuffer, UniformBuffer};
 
-use albedo_rtx::passes::{
-    AccumulationPassDescriptor, BlitPass, IntersectorPassDescriptor, RayGeneratorPassDescriptor,
-    ShadingPassDescriptor,
-};
-use albedo_rtx::renderer::resources::{CameraGPU, GlobalUniformsGPU, IntersectionGPU, RayGPU};
+use albedo_rtx::passes;
+use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray};
 
+use crate::device::Device;
 use crate::errors::Error;
-use crate::device::{Device};
 use crate::scene::SceneGPU;
 
 struct ScreenBoundResourcesGPU {
-    ray_buffer: GPUBuffer<RayGPU>,
-    intersection_buffer: GPUBuffer<IntersectionGPU>,
+    ray_buffer: GPUBuffer<Ray>,
+    intersection_buffer: GPUBuffer<Intersection>,
     render_target: wgpu::Texture,
     render_target_view: wgpu::TextureView,
 }
@@ -59,15 +56,15 @@ impl BindGroups {
         device: &Device,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
-        global_uniforms: &UniformBuffer<GlobalUniformsGPU>,
-        camera_uniforms: &UniformBuffer<CameraGPU>,
+        global_uniforms: &UniformBuffer<PerDrawUniforms>,
+        camera_uniforms: &UniformBuffer<Camera>,
         render_target_sampler: &wgpu::Sampler,
         filtered_sampler_2d: &wgpu::Sampler,
-        ray_pass_desc: &RayGeneratorPassDescriptor,
-        intersector_pass_desc: &IntersectorPassDescriptor,
-        shading_pass_desc: &ShadingPassDescriptor,
-        accumulation_pass_desc: &AccumulationPassDescriptor,
-        blit_pass: &BlitPass,
+        ray_pass_desc: &passes::RayPass,
+        intersector_pass_desc: &passes::IntersectorPass,
+        shading_pass_desc: &passes::ShadingPass,
+        accumulation_pass_desc: &passes::AccumulationPass,
+        blit_pass: &passes::BlitPass,
     ) -> Self {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
@@ -99,7 +96,7 @@ impl BindGroups {
                 scene_resources.atlas.as_ref().unwrap().info_texture_view(),
                 scene_resources.atlas.as_ref().unwrap().texture_view(),
                 global_uniforms,
-                device.sampler_nearest()
+                device.sampler_nearest(),
             ),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device.inner(),
@@ -118,21 +115,21 @@ impl BindGroups {
 }
 
 pub struct Passes {
-    pub rays: RayGeneratorPassDescriptor,
-    pub intersection: IntersectorPassDescriptor,
-    pub shading: ShadingPassDescriptor,
-    pub accumulation: AccumulationPassDescriptor,
-    pub blit: BlitPass,
+    pub rays: passes::RayPass,
+    pub intersection: passes::IntersectorPass,
+    pub shading: passes::ShadingPass,
+    pub accumulation: passes::AccumulationPass,
+    pub blit: passes::BlitPass,
 }
 
 pub struct Renderer {
     screen_bound_resources: ScreenBoundResourcesGPU,
     downsampled_screen_bound_resources: ScreenBoundResourcesGPU,
 
-    camera: CameraGPU,
-    camera_uniforms: UniformBuffer<CameraGPU>,
-    global_uniforms: GlobalUniformsGPU,
-    global_uniforms_buffer: UniformBuffer<GlobalUniformsGPU>,
+    camera: Camera,
+    camera_uniforms: UniformBuffer<Camera>,
+    global_uniforms: PerDrawUniforms,
+    global_uniforms_buffer: UniformBuffer<PerDrawUniforms>,
 
     pub passes: Passes,
     fullscreen_bindgroups: Option<BindGroups>,
@@ -164,18 +161,18 @@ impl Renderer {
             ),
             camera: Default::default(),
             camera_uniforms: UniformBuffer::new(device.inner()),
-            global_uniforms: GlobalUniformsGPU {
+            global_uniforms: PerDrawUniforms {
                 frame_count: 1,
                 seed: 0,
                 ..Default::default()
             },
             global_uniforms_buffer: UniformBuffer::new(device.inner()),
             passes: Passes {
-                rays: RayGeneratorPassDescriptor::new(device.inner()),
-                intersection: IntersectorPassDescriptor::new(device.inner()),
-                shading: ShadingPassDescriptor::new(device.inner()),
-                accumulation: AccumulationPassDescriptor::new(device.inner()),
-                blit: BlitPass::new(device.inner(), swapchain_format),
+                rays: passes::RayPass::new(device.inner(), None),
+                intersection: passes::IntersectorPass::new(device.inner(), None),
+                shading: passes::ShadingPass::new(device.inner()),
+                accumulation: passes::AccumulationPass::new(device.inner(), None),
+                blit: passes::BlitPass::new(device.inner(), swapchain_format),
             },
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -226,16 +223,16 @@ impl Renderer {
         self.camera_uniforms.update(&queue, &self.camera);
 
         let dispatch_size = (size.0, size.1, 1);
+        let dispatch_workoup_size = albedo_rtx::get_dispatch_size(dispatch_size, WORKGROUP_SIZE);
 
         // Step 1:
         //
         // Generate a ray struct for every fragment.
-        ComputePass::new(
+        self.passes.rays.dispatch(
             encoder,
-            &self.passes.rays,
             &bindgroups.as_ref().unwrap().generate_ray_pass,
-        )
-        .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+            dispatch_workoup_size,
+        );
 
         // Step 2:
         //
@@ -245,26 +242,24 @@ impl Renderer {
             self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
                 .update(&queue, &self.global_uniforms);
-            ComputePass::new(
+            self.passes.intersection.dispatch(
                 encoder,
-                &self.passes.intersection,
                 &bindgroups.as_ref().unwrap().intersection_pass,
-            )
-            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
-            ComputePass::new(
+                dispatch_workoup_size,
+            );
+            self.passes.shading.dispatch(
                 encoder,
-                &self.passes.shading,
                 &bindgroups.as_ref().unwrap().shading_pass,
-            )
-            .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+                dispatch_workoup_size
+            );
         }
+
         // Accumulation.
-        ComputePass::new(
+        self.passes.accumulation.dispatch(
             encoder,
-            &self.passes.accumulation,
             &bindgroups.as_ref().unwrap().accumulate_pass,
-        )
-        .dispatch(&(), dispatch_size, WORKGROUP_SIZE);
+            dispatch_workoup_size,
+        );
 
         if self.accumulate {
             self.global_uniforms.frame_count += 1;
@@ -369,7 +364,7 @@ impl Renderer {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // @todo: this re-create shaders + pipeline layout + life.
-        let blit_pass = BlitPass::new(device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let blit_pass = passes::BlitPass::new(device, wgpu::TextureFormat::Rgba8UnormSrgb);
         blit_pass.draw(
             &mut encoder,
             &view,

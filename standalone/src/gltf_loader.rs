@@ -1,10 +1,6 @@
-use albedo_rtx::renderer::{self, resources};
+use albedo_bvh::{builders, BLASArray, Mesh};
 use albedo_rtx::texture;
-use albedo_bvh::{
-    builders,
-    BLASArray,
-    Mesh,
-};
+use albedo_rtx::uniforms;
 
 use gltf::{self, image};
 use std::path::Path;
@@ -67,19 +63,18 @@ fn rgba8_image(image: image::Data) -> ImageData {
 
     // Allocate a new buffer if the data isn't RGBA8.
     let pixels_count = image.width as usize * image.height as usize;
-    let buffer =
-        if components != 4 {
-            let mut buffer = vec![0 as u8; pixels_count * 4];
-            for i in 0..pixels_count {
-                let dst_start = i * 4;
-                let src_start = i * components;
-                buffer[dst_start..(dst_start + components)]
-                    .copy_from_slice(&image.pixels[src_start..(src_start + components)]);
-            }
-            buffer
-        } else {
-            image.pixels
-        };
+    let buffer = if components != 4 {
+        let mut buffer = vec![0 as u8; pixels_count * 4];
+        for i in 0..pixels_count {
+            let dst_start = i * 4;
+            let src_start = i * components;
+            buffer[dst_start..(dst_start + components)]
+                .copy_from_slice(&image.pixels[src_start..(src_start + components)]);
+        }
+        buffer
+    } else {
+        image.pixels
+    };
 
     ImageData::new(buffer, image.width, image.height)
 }
@@ -103,8 +98,8 @@ pub fn load_gltf<P: AsRef<Path>>(
         }
     };
     let mut meshes: Vec<ProxyMesh> = Vec::new();
-    let mut materials: Vec<renderer::resources::MaterialGPU> = Vec::new();
-    let mut instances: Vec<renderer::resources::InstanceGPU> = Vec::new();
+    let mut materials: Vec<uniforms::Material> = Vec::new();
+    let mut instances: Vec<uniforms::Instance> = Vec::new();
 
     for mesh in doc.meshes() {
         let mut positions: Vec<[f32; 3]> = Vec::new();
@@ -136,25 +131,25 @@ pub fn load_gltf<P: AsRef<Path>>(
 
     for material in doc.materials() {
         let pbr = material.pbr_metallic_roughness();
-        materials.push(renderer::resources::MaterialGPU {
+        materials.push(uniforms::Material {
             color: pbr.base_color_factor().into(),
             roughness: pbr.roughness_factor(),
             reflectivity: pbr.metallic_factor(),
             albedo_texture: pbr
                 .base_color_texture()
                 .map(|c| c.texture().index() as u32)
-                .unwrap_or(resources::INVALID_INDEX),
+                .unwrap_or(uniforms::INVALID_INDEX),
             mra_texture: pbr
                 .metallic_roughness_texture()
                 .map(|c| c.texture().index() as u32)
-                .unwrap_or(resources::INVALID_INDEX),
+                .unwrap_or(uniforms::INVALID_INDEX),
             ..Default::default()
         });
     }
 
     let mut builder = builders::SAHBuilder::new();
-    let blas = BLASArray::new(&meshes, &mut builder)
-        .or_else(|e| Err(Error::AccelBuild(e.into())))?;
+    let blas =
+        BLASArray::new(&meshes, &mut builder).or_else(|e| Err(Error::AccelBuild(e.into())))?;
 
     for node in doc.nodes() {
         // @todo: handle scene graph.
@@ -170,7 +165,7 @@ pub fn load_gltf<P: AsRef<Path>>(
                     Some(v) => v as u32,
                     None => u32::MAX,
                 };
-                instances.push(renderer::resources::InstanceGPU {
+                instances.push(uniforms::Instance {
                     model_to_world,
                     world_to_model: model_to_world.inverse(),
                     material_index,

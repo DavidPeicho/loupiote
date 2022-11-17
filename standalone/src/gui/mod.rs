@@ -1,16 +1,16 @@
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use winit::event::{self};
 
-use albedo_rtx::renderer::resources;
+use albedo_rtx::uniforms;
 
 use crate::errors::Error;
 use crate::gltf_loader::{load_gltf, GLTFLoaderOptions};
 use crate::SceneGPU;
 
 use self::windows::ErrorWindow;
+mod toolbar;
 mod views;
 mod windows;
-mod toolbar;
 
 pub struct GUI {
     platform: Platform,
@@ -195,7 +195,7 @@ impl GUI {
                 },
             )?;
             // @todo: parse from file.
-            scene.lights = vec![resources::LightGPU::from_matrix(
+            scene.lights = vec![uniforms::Light::from_matrix(
                 glam::Mat4::from_scale_rotation_translation(
                     glam::Vec3::new(1.0, 1.0, 1.0),
                     glam::Quat::from_rotation_x(1.5),

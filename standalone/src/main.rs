@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use albedo_rtx::renderer::resources::LightGPU;
+use albedo_rtx::uniforms;
 use winit::{
     event::{self},
     event_loop::EventLoop,
@@ -11,7 +11,7 @@ mod commands;
 use commands::EditorCommand;
 
 mod settings;
-use settings::{Settings};
+use settings::Settings;
 
 mod device;
 use device::Device;
@@ -20,7 +20,7 @@ mod errors;
 mod utils;
 
 mod input_manager;
-use input_manager::{InputManager};
+use input_manager::InputManager;
 
 mod gltf_loader;
 use gltf_loader::{load_gltf, GLTFLoaderOptions};
@@ -60,13 +60,13 @@ pub struct ApplicationContext {
 }
 
 impl ApplicationContext {
-
     fn run_command(&mut self, command: EditorCommand) {
         match command {
-            EditorCommand::ToggleAccumulation => self.settings.accumulate = !self.settings.accumulate
+            EditorCommand::ToggleAccumulation => {
+                self.settings.accumulate = !self.settings.accumulate
+            }
         }
     }
-
 }
 
 enum EventLoopContext {}
@@ -218,7 +218,7 @@ fn main() {
         },
     )
     .unwrap();
-    scene.lights = vec![LightGPU::from_matrix(
+    scene.lights = vec![uniforms::Light::from_matrix(
         glam::Mat4::from_scale_rotation_translation(
             glam::Vec3::new(1.0, 1.0, 1.0),
             glam::Quat::from_rotation_x(1.5),
@@ -401,7 +401,9 @@ fn main() {
                             }
                         };
                     }
-                    if let Some(cmd) = input_manager.process_keyboard_input(&virtual_keycode, &state) {
+                    if let Some(cmd) =
+                        input_manager.process_keyboard_input(&virtual_keycode, &state)
+                    {
                         app_context.run_command(cmd);
                     }
                 }
