@@ -20,9 +20,8 @@ egui_winit_platform = "0.16"
 rfd = "0.8.1"
 pollster = "0.2"
 futures-intrusive = "0.4"
-albedo_backend = { path = "../../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
-albedo_bvh = { path = "../../albedo-engine/crates/albedo_bvh", version = "0.0.1-beta.0" }
 albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
+albedo_lib = { path = "../lib", version = "0.0.1-beta.0" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 async-executor = "1.0"

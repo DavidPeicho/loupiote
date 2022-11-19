@@ -1,4 +1,4 @@
-use albedo_backend::{ComputePass, GPUBuffer, UniformBuffer};
+use albedo_backend::{GPUBuffer, UniformBuffer};
 
 use albedo_rtx::passes;
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray};
@@ -250,7 +250,7 @@ impl Renderer {
             self.passes.shading.dispatch(
                 encoder,
                 &bindgroups.as_ref().unwrap().shading_pass,
-                dispatch_workoup_size
+                dispatch_workoup_size,
             );
         }
 

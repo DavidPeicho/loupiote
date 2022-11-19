@@ -1,10 +1,10 @@
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use winit::event::{self};
 
+use albedo_lib::{load_gltf, GLTFLoaderOptions};
 use albedo_rtx::uniforms;
 
 use crate::errors::Error;
-use crate::gltf_loader::{load_gltf, GLTFLoaderOptions};
 use crate::SceneGPU;
 
 use self::windows::ErrorWindow;

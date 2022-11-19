@@ -71,6 +71,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "albedo_lib"
+version = "0.0.1-beta.0"
+dependencies = [
+ "albedo_backend",
+ "albedo_bvh",
+ "albedo_rtx",
+ "bytemuck",
+ "egui",
+ "egui_wgpu_backend",
+ "egui_winit_platform",
+ "enumflags2",
+ "futures-intrusive",
+ "glam",
+ "gltf",
+ "hotwatch",
+ "image 0.24.4",
+ "pollster",
+ "rfd",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "albedo_math"
 version = "0.0.1-beta.0"
 dependencies = [
@@ -2122,8 +2145,7 @@ dependencies = [
 name = "standalone"
 version = "0.1.0"
 dependencies = [
- "albedo_backend",
- "albedo_bvh",
+ "albedo_lib",
  "albedo_rtx",
  "async-executor",
  "bytemuck",

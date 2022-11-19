@@ -1,7 +1,9 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
+use albedo_lib::*;
 use albedo_rtx::uniforms;
+
 use winit::{
     event::{self},
     event_loop::EventLoop,
@@ -13,28 +15,16 @@ use commands::EditorCommand;
 mod settings;
 use settings::Settings;
 
-mod device;
-use device::Device;
-
 mod errors;
 mod utils;
 
 mod input_manager;
 use input_manager::InputManager;
 
-mod gltf_loader;
-use gltf_loader::{load_gltf, GLTFLoaderOptions};
-
 mod gui;
-
-mod scene;
-use scene::{Scene, SceneGPU};
 
 mod camera;
 use camera::CameraMoveCommand;
-
-mod renderer;
-use renderer::Renderer;
 
 struct WindowApp {
     instance: wgpu::Instance,
@@ -53,7 +43,7 @@ pub struct ApplicationContext {
     window: winit::window::Window,
     device: Device,
     queue: wgpu::Queue,
-    scene: Scene<gltf_loader::ProxyMesh>,
+    scene: Scene<ProxyMesh>,
     scene_gpu: SceneGPU,
     limits: wgpu::Limits,
     settings: Settings,

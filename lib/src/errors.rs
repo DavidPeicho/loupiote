@@ -1,4 +1,3 @@
-use albedo_lib;
 use image::ImageError;
 
 #[derive(Debug)]
@@ -7,17 +6,6 @@ pub enum Error {
     TextureToBufferReadFail,
     ImageError(ImageError),
     AccelBuild(String),
-}
-
-impl From<albedo_lib::Error> for Error {
-    fn from(e: albedo_lib::Error) -> Self {
-        match e {
-            albedo_lib::Error::FileNotFound(f) => Error::FileNotFound(f),
-            albedo_lib::Error::ImageError(e) => Error::ImageError(e),
-            albedo_lib::Error::TextureToBufferReadFail => Error::TextureToBufferReadFail,
-            albedo_lib::Error::AccelBuild(reason) => Error::AccelBuild(reason),
-        }
-    }
 }
 
 impl From<Error> for String {
