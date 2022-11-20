@@ -1,4 +1,4 @@
-# Albedo: Pathtracer
+# Loupiote
 
 Interactive Pathtracer written in Rust and based on [WebGPU](https://github.com/gfx-rs/wgpu) 🦀
 
