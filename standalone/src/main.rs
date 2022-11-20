@@ -189,6 +189,7 @@ fn main() {
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Immediate,
@@ -276,17 +277,20 @@ fn main() {
     let mut gui = gui::GUI::new(
         app_context.device.inner(),
         &app_context.window,
+        &event_loop,
         &surface_config,
     );
-    gui.scene_info_window
+    gui.windows
+        .scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
-    gui.scene_info_window
+    gui.windows
+        .scene_info_window
         .set_bvh_nodes_count(app_context.scene.blas.nodes.len());
 
     #[cfg(not(target_arch = "wasm32"))]
     {
         let adapter_info = adapter.get_info();
-        gui.scene_info_window.adapter_name = adapter_info.name;
+        gui.windows.scene_info_window.adapter_name = adapter_info.name;
     }
 
     let renderer = Arc::new(Mutex::new(Renderer::new(
@@ -305,18 +309,9 @@ fn main() {
 
     let spawner = Spawner::new();
     event_loop.run(move |event, _, control_flow| {
-        let event_captured = gui.handle_event(&event);
+        gui.handle_event(&event);
+        let event_captured = gui.captured();
         match event {
-            event::Event::Resumed => {
-                // *surface = Some(Arc::new(unsafe { instance.create_surface(window) }));
-                // Some(false)
-                println!("Resumed");
-            }
-            event::Event::Suspended => {
-                // *surface = None;
-                // Some(true)
-                println!("Suspended");
-            }
             event::Event::WindowEvent {
                 event:
                     event::WindowEvent::Resized(size)
@@ -336,6 +331,7 @@ fn main() {
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
                 surface.configure(app_context.device.inner(), &surface_config);
+                gui.resize(&app_context);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -422,7 +418,6 @@ fn main() {
                 // isn't focused.
                 last_time += duration;
 
-                // println!("{:?}", last_time.elapsed());
                 let frame = surface
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
@@ -456,9 +451,11 @@ fn main() {
                     },
                 );
                 // Render GUI.
-                gui.performance_info_window
+                gui.windows
+                    .performance_info_window
                     .set_global_performance(duration.as_millis() as f64);
-                gui.render(
+
+                let gui_cmd_buffers = gui.render(
                     &mut app_context,
                     &mut renderer,
                     &surface_config,
@@ -467,9 +464,13 @@ fn main() {
                     start_time.elapsed().as_secs_f64(),
                 );
 
-                app_context
-                    .queue
-                    .submit([encoder.finish(), encoder_gui.finish()]);
+                app_context.queue.submit(
+                    std::iter::once(encoder.finish()).chain(
+                        gui_cmd_buffers
+                            .into_iter()
+                            .chain(std::iter::once(encoder_gui.finish())),
+                    ),
+                );
 
                 frame.present();
             }
