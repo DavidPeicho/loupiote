@@ -1,16 +1,18 @@
-use std::future::Future;
-use std::sync::{Arc, Mutex};
+use winit;
 
 use albedo_lib::*;
 use albedo_rtx::uniforms;
 
-use winit::{
-    event::{self},
-    event_loop::EventLoop,
-};
+mod app;
+use app::*;
+
+mod async_exec;
+use async_exec::Spawner;
+
+mod event;
+use event::Event;
 
 mod commands;
-use commands::EditorCommand;
 
 mod settings;
 use settings::Settings;
@@ -26,43 +28,9 @@ mod gui;
 mod camera;
 use camera::CameraMoveCommand;
 
-struct WindowApp {
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
-    device: Device,
-    window: winit::window::Window,
-    event_loop: EventLoop<EventLoopContext>,
-    surface: wgpu::Surface,
-    queue: wgpu::Queue,
-    size: winit::dpi::PhysicalSize<u32>,
-}
-
-// @todo: this might need to be split-up
-// depending on multi-threaded accesses.
-pub struct ApplicationContext {
-    window: winit::window::Window,
-    device: Device,
-    queue: wgpu::Queue,
-    scene: Scene<ProxyMesh>,
-    scene_gpu: SceneGPU,
-    limits: wgpu::Limits,
-    settings: Settings,
-}
-
-impl ApplicationContext {
-    fn run_command(&mut self, command: EditorCommand) {
-        match command {
-            EditorCommand::ToggleAccumulation => {
-                self.settings.accumulate = !self.settings.accumulate
-            }
-        }
-    }
-}
-
-enum EventLoopContext {}
-
-async fn setup() -> WindowApp {
-    let event_loop: EventLoop<EventLoopContext> = EventLoop::with_user_event();
+async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
+    let event_loop: winit::event_loop::EventLoop<Event> =
+        winit::event_loop::EventLoop::with_user_event();
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title("Albedo Pathtracer");
 
@@ -127,16 +95,18 @@ async fn setup() -> WindowApp {
             .expect("couldn't append canvas to document body");
     }
 
-    WindowApp {
-        instance,
-        adapter,
-        device: Device::new(device),
-        window,
+    (
         event_loop,
-        surface,
-        queue,
-        size,
-    }
+        Plaftorm {
+            instance,
+            adapter,
+            device: Device::new(device),
+            window,
+            surface,
+            queue,
+            size,
+        },
+    )
 }
 
 // fn watch_shading_shader(
@@ -170,35 +140,27 @@ async fn setup() -> WindowApp {
 // }
 
 fn main() {
-    let WindowApp {
-        instance,
-        adapter,
-        device,
-        window,
-        event_loop,
-        surface,
-        queue,
-        size,
-    } = pollster::block_on(setup());
+    let (event_loop, platform) = pollster::block_on(setup());
+    let event_loop_proxy = event_loop.create_proxy();
 
     println!("\n============================================================");
     println!("                   🚀 Albedo Pathtracer 🚀                   ");
     println!("============================================================\n");
 
-    let swapchain_format = surface.get_supported_formats(&adapter)[0];
+    let swapchain_format = platform.surface.get_supported_formats(&platform.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
         alpha_mode: wgpu::CompositeAlphaMode::Auto,
-        width: size.width,
-        height: size.height,
+        width: platform.size.width,
+        height: platform.size.height,
         present_mode: wgpu::PresentMode::Immediate,
     };
 
-    let surface = unsafe { instance.create_surface(&window) };
-    surface.configure(&device.inner(), &surface_config);
+    let surface = unsafe { platform.instance.create_surface(&platform.window) };
+    surface.configure(&platform.device.inner(), &surface_config);
 
-    let limits = device.inner().limits();
+    let limits = platform.device.inner().limits();
 
     // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
     let mut scene = load_gltf(
@@ -224,13 +186,6 @@ fn main() {
     camera_controller.move_speed_factor = 0.15;
     camera_controller.rotation_enabled = false;
 
-    // Per-screen resolution resources, including:
-    //  * Rays
-    //  * Intersections
-    //  * Render Target
-
-    //// GPU Scene:
-
     //// Load HDRi enviromment.
     let file_reader =
         std::io::BufReader::new(std::fs::File::open("./assets/uffizi-large.hdr").unwrap());
@@ -244,22 +199,31 @@ fn main() {
         )
     };
 
-    let mut app_context = ApplicationContext {
-        window,
-        scene_gpu: SceneGPU::new_from_scene(&scene, device.inner(), &queue),
-        scene,
-        device,
-        queue,
-        limits,
-        settings: Settings::new(),
-    };
-    app_context.scene_gpu.upload_probe(
-        app_context.device.inner(),
-        &app_context.queue,
+    let mut scene_gpu = SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
+    scene_gpu.upload_probe(
+        platform.device.inner(),
+        &platform.queue,
         image_data_raw,
         metadata.width,
         metadata.height,
     );
+    let renderer = Renderer::new(
+        &platform.device,
+        (platform.size.width, platform.size.height),
+        swapchain_format,
+        &scene_gpu,
+    );
+
+    let mut app_context = ApplicationContext {
+        platform,
+        event_loop_proxy,
+        executor: Spawner::new(),
+        scene,
+        scene_gpu,
+        limits,
+        renderer,
+        settings: Settings::new(),
+    };
 
     //// Renderer:
 
@@ -274,12 +238,7 @@ fn main() {
     //
     // Create GUI.
     //
-    let mut gui = gui::GUI::new(
-        app_context.device.inner(),
-        &app_context.window,
-        &event_loop,
-        &surface_config,
-    );
+    let mut gui = gui::GUI::new(&app_context, &event_loop, &surface_config);
     gui.windows
         .scene_info_window
         .set_meshes_count(app_context.scene.meshes.len());
@@ -289,33 +248,29 @@ fn main() {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let adapter_info = adapter.get_info();
+        let adapter_info = app_context.platform.adapter.get_info();
         gui.windows.scene_info_window.adapter_name = adapter_info.name;
     }
 
-    let renderer = Arc::new(Mutex::new(Renderer::new(
-        &app_context.device,
-        (size.width, size.height),
-        swapchain_format,
+    app_context.renderer.resize(
+        &app_context.platform.device,
         &app_context.scene_gpu,
-    )));
-    renderer.lock().unwrap().resize(
-        &app_context.device,
-        &app_context.scene_gpu,
-        (size.width.max(1), size.height.max(1)),
+        (
+            app_context.platform.size.width.max(1),
+            app_context.platform.size.height.max(1),
+        ),
     );
 
     let input_manager = InputManager::new();
-
-    let spawner = Spawner::new();
     event_loop.run(move |event, _, control_flow| {
         gui.handle_event(&event);
         let event_captured = gui.captured();
         match event {
-            event::Event::WindowEvent {
+            winit::event::Event::UserEvent(event) => app_context.event(event),
+            winit::event::Event::WindowEvent {
                 event:
-                    event::WindowEvent::Resized(size)
-                    | event::WindowEvent::ScaleFactorChanged {
+                    winit::event::WindowEvent::Resized(size)
+                    | winit::event::WindowEvent::ScaleFactorChanged {
                         new_inner_size: &mut size,
                         ..
                     },
@@ -324,32 +279,32 @@ fn main() {
                 let new_size = (size.width.max(1), size.height.max(1));
                 surface_config.width = new_size.0;
                 surface_config.height = new_size.1;
-                renderer.lock().unwrap().resize(
-                    &app_context.device,
+                app_context.renderer.resize(
+                    &app_context.platform.device,
                     &app_context.scene_gpu,
                     new_size,
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
-                surface.configure(app_context.device.inner(), &surface_config);
+                surface.configure(app_context.platform.device.inner(), &surface_config);
                 gui.resize(&app_context);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
-                event::DeviceEvent::MouseMotion { delta } => {
+                winit::event::DeviceEvent::MouseMotion { delta } => {
                     if !event_captured {
                         camera_controller.rotate(
-                            (delta.0 / (size.width as f64 * 0.5)) as f32,
-                            (delta.1 / (size.height as f64 * 0.5)) as f32,
+                            (delta.0 / (app_context.platform.size.width as f64 * 0.5)) as f32,
+                            (delta.1 / (app_context.platform.size.height as f64 * 0.5)) as f32,
                         );
                     }
                 }
                 _ => {}
             },
 
-            event::Event::WindowEvent { event, .. } => match event {
-                event::WindowEvent::KeyboardInput {
+            winit::event::Event::WindowEvent { event, .. } => match event {
+                winit::event::WindowEvent::KeyboardInput {
                     input:
-                        event::KeyboardInput {
+                        winit::event::KeyboardInput {
                             virtual_keycode: Some(virtual_keycode),
                             state,
                             ..
@@ -357,32 +312,30 @@ fn main() {
                     ..
                 } => {
                     match virtual_keycode {
-                        event::VirtualKeyCode::Escape => {
+                        winit::event::VirtualKeyCode::Escape => {
                             *control_flow = winit::event_loop::ControlFlow::Exit
                         }
                         _ => (),
                     };
-                    let direction = match virtual_keycode {
-                        event::VirtualKeyCode::S | event::VirtualKeyCode::Down => {
-                            CameraMoveCommand::Backward
-                        }
-                        event::VirtualKeyCode::A | event::VirtualKeyCode::Left => {
-                            CameraMoveCommand::Left
-                        }
-                        event::VirtualKeyCode::D | event::VirtualKeyCode::Right => {
-                            CameraMoveCommand::Right
-                        }
-                        event::VirtualKeyCode::W | event::VirtualKeyCode::Up => {
-                            CameraMoveCommand::Forward
-                        }
-                        _ => CameraMoveCommand::None,
-                    };
+                    let direction =
+                        match virtual_keycode {
+                            winit::event::VirtualKeyCode::S
+                            | winit::event::VirtualKeyCode::Down => CameraMoveCommand::Backward,
+                            winit::event::VirtualKeyCode::A
+                            | winit::event::VirtualKeyCode::Left => CameraMoveCommand::Left,
+                            winit::event::VirtualKeyCode::D
+                            | winit::event::VirtualKeyCode::Right => CameraMoveCommand::Right,
+                            winit::event::VirtualKeyCode::W | winit::event::VirtualKeyCode::Up => {
+                                CameraMoveCommand::Forward
+                            }
+                            _ => CameraMoveCommand::None,
+                        };
                     if !event_captured {
                         match state {
-                            event::ElementState::Pressed => {
+                            winit::event::ElementState::Pressed => {
                                 camera_controller.set_command(direction)
                             }
-                            event::ElementState::Released => {
+                            winit::event::ElementState::Released => {
                                 camera_controller.unset_command(direction)
                             }
                         };
@@ -393,23 +346,23 @@ fn main() {
                         app_context.run_command(cmd);
                     }
                 }
-                event::WindowEvent::CloseRequested => {
+                winit::event::WindowEvent::CloseRequested => {
                     *control_flow = winit::event_loop::ControlFlow::Exit;
                 }
-                event::WindowEvent::MouseInput { button, state, .. } => {
+                winit::event::WindowEvent::MouseInput { button, state, .. } => {
                     if button == winit::event::MouseButton::Left {
-                        camera_controller.rotation_enabled = state == event::ElementState::Pressed;
+                        camera_controller.rotation_enabled =
+                            state == winit::event::ElementState::Pressed;
                     }
                 }
                 _ => {}
             },
-            event::Event::RedrawEventsCleared => {
+            winit::event::Event::RedrawEventsCleared => {
                 #[cfg(not(target_arch = "wasm32"))]
-                spawner.run_until_stalled();
-
-                app_context.window.request_redraw();
+                app_context.executor.run_until_stalled();
+                app_context.platform.window.request_redraw();
             }
-            event::Event::RedrawRequested(_) => {
+            winit::event::Event::RedrawRequested(_) => {
                 // Updates.
                 let duration = std::time::Instant::now() - last_time;
 
@@ -432,20 +385,21 @@ fn main() {
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
                 let mut encoder = app_context
+                    .platform
                     .device
                     .inner()
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-                let mut renderer = renderer.lock().unwrap();
+                let renderer = &mut app_context.renderer;
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 if !app_context.settings.accumulate || !camera_controller.is_static() {
                     renderer.reset_accumulation();
                 }
-                renderer.raytrace(&mut encoder, &app_context.queue);
+                renderer.raytrace(&mut encoder, &app_context.platform.queue);
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;
 
-                let mut encoder_gui = app_context.device.inner().create_command_encoder(
+                let mut encoder_gui = app_context.platform.device.inner().create_command_encoder(
                     &wgpu::CommandEncoderDescriptor {
                         label: Some("encoder-gui"),
                     },
@@ -457,14 +411,13 @@ fn main() {
 
                 let gui_cmd_buffers = gui.render(
                     &mut app_context,
-                    &mut renderer,
                     &surface_config,
                     &mut encoder_gui,
                     &view,
                     start_time.elapsed().as_secs_f64(),
                 );
 
-                app_context.queue.submit(
+                app_context.platform.queue.submit(
                     std::iter::once(encoder.finish()).chain(
                         gui_cmd_buffers
                             .into_iter()
@@ -477,42 +430,4 @@ fn main() {
             _ => {}
         }
     });
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub struct Spawner<'a> {
-    executor: async_executor::LocalExecutor<'a>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<'a> Spawner<'a> {
-    fn new() -> Self {
-        Self {
-            executor: async_executor::LocalExecutor::new(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn spawn_local(&self, future: impl Future<Output = ()> + 'a) {
-        self.executor.spawn(future).detach();
-    }
-
-    fn run_until_stalled(&self) {
-        while self.executor.try_tick() {}
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub struct Spawner {}
-
-#[cfg(target_arch = "wasm32")]
-impl Spawner {
-    fn new() -> Self {
-        Self {}
-    }
-
-    #[allow(dead_code)]
-    pub fn spawn_local(&self, future: impl Future<Output = ()> + 'static) {
-        wasm_bindgen_futures::spawn_local(future);
-    }
 }

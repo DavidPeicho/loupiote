@@ -16,8 +16,8 @@ gltf = "1.0.0"
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
 egui = { git = "https://github.com/emilk/egui" }
 egui-wgpu = { git = "https://github.com/emilk/egui" }
-egui-winit = { git = "https://github.com/emilk/egui" }
-rfd = "0.8.1"
+egui-winit = { git = "https://github.com/emilk/egui", default-features = false }
+rfd = "0.10.0"
 pollster = "0.2"
 futures-intrusive = "0.4"
 albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
