@@ -187,45 +187,27 @@ fn render_menu_bar(
 
 fn render_file_menu(
     ui: &mut egui::Ui,
-    app_context: &mut crate::ApplicationContext,
+    context: &mut crate::ApplicationContext,
 ) -> Result<(), Error> {
-    let mut file_path: Option<std::path::PathBuf> = None;
-    let platform = &app_context.platform;
+    let platform = &context.platform;
     ui.menu_button("File", |ui| {
         if ui.button("Load").clicked() {
             ui.ctx().memory().reset_areas();
-            file_path = rfd::FileDialog::new()
+
+            let dialog = rfd::AsyncFileDialog::new()
                 .set_parent(&platform.window)
                 .pick_file();
+            let event_loop_proxy = context.event_loop_proxy.clone();
+            context.executor.spawn_local(async move {
+                let handle = dialog.await;
+                if let Some(file) = handle {
+                    event_loop_proxy
+                        .send_event(Event::LoadFile(file.path().to_path_buf()))
+                        .ok();
+                }
+            });
         }
     });
-    if let Some(path) = file_path {
-        let mut scene = load_gltf(
-            &path,
-            &GLTFLoaderOptions {
-                atlas_max_size: app_context.limits.max_texture_dimension_1d,
-            },
-        )?;
-        // @todo: parse from file.
-        scene.lights = vec![uniforms::Light::from_matrix(
-            glam::Mat4::from_scale_rotation_translation(
-                glam::Vec3::new(1.0, 1.0, 1.0),
-                glam::Quat::from_rotation_x(1.5),
-                glam::Vec3::new(0.0, 3.0, 0.75),
-            ),
-        )];
-
-        let probe_tex = std::mem::take(&mut app_context.scene_gpu.probe_texture);
-        let probe_tex_view = std::mem::take(&mut app_context.scene_gpu.probe_texture_view);
-        app_context.scene_gpu =
-            SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
-        app_context.scene_gpu.probe_texture = probe_tex;
-        app_context.scene_gpu.probe_texture_view = probe_tex_view;
-        app_context.scene = scene;
-        app_context
-            .renderer
-            .set_resources(&platform.device, &app_context.scene_gpu);
-    }
     Ok(())
 }
 

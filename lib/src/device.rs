@@ -1,8 +1,22 @@
 use wgpu;
 
+pub struct DefaultTextures {
+    filterable: wgpu::TextureView,
+    non_filterable: wgpu::TextureView,
+}
+
+impl DefaultTextures {
+    pub fn filterable_2darray(&self) -> &wgpu::TextureView {
+        &self.filterable
+    }
+    pub fn non_filterable_1d(&self) -> &wgpu::TextureView {
+        &self.non_filterable
+    }
+}
+
 pub struct Device {
     device: wgpu::Device,
-    default_texture_view: wgpu::TextureView,
+    default_textures: DefaultTextures,
     default_buffer: wgpu::Buffer,
     sampler_nearest: wgpu::Sampler,
     sampler_linear: wgpu::Sampler,
@@ -10,9 +24,27 @@ pub struct Device {
 
 impl Device {
     pub fn new(device: wgpu::Device) -> Self {
-        let default_texture_view = device
+        let filterable_2darray = device
             .create_texture(&wgpu::TextureDescriptor {
-                label: Some("null texture"),
+                label: Some("Default Filterable Texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            })
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..wgpu::TextureViewDescriptor::default()
+            });
+        let non_filterable_1d = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Default Non-Filterable Texture"),
                 size: wgpu::Extent3d {
                     width: 1,
                     height: 1,
@@ -21,7 +53,7 @@ impl Device {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D1,
-                format: wgpu::TextureFormat::R8Unorm,
+                format: wgpu::TextureFormat::R8Uint,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
             })
             .create_view(&wgpu::TextureViewDescriptor {
@@ -54,10 +86,13 @@ impl Device {
         });
         Self {
             device,
-            default_texture_view,
+            default_textures: DefaultTextures {
+                filterable: filterable_2darray,
+                non_filterable: non_filterable_1d,
+            },
             default_buffer,
             sampler_nearest,
-            sampler_linear
+            sampler_linear,
         }
     }
 
@@ -67,8 +102,8 @@ impl Device {
     pub fn inner_mut(&mut self) -> &mut wgpu::Device {
         &mut self.device
     }
-    pub fn default_texture_view(&self) -> &wgpu::TextureView {
-        &self.default_texture_view
+    pub fn default_textures(&self) -> &DefaultTextures {
+        &self.default_textures
     }
     pub fn default_buffer(&self) -> &wgpu::Buffer {
         &self.default_buffer

@@ -162,23 +162,6 @@ fn main() {
 
     let limits = platform.device.inner().limits();
 
-    // let mut scene = load_gltf(&"./assets/cornell-box.glb").unwrap();
-    let mut scene = load_gltf(
-        &"./assets/DamagedHelmet.glb",
-        // &"./assets/cornell-box.glb",
-        &GLTFLoaderOptions {
-            atlas_max_size: limits.max_texture_dimension_1d,
-        },
-    )
-    .unwrap();
-    scene.lights = vec![uniforms::Light::from_matrix(
-        glam::Mat4::from_scale_rotation_translation(
-            glam::Vec3::new(1.0, 1.0, 1.0),
-            glam::Quat::from_rotation_x(1.5),
-            glam::Vec3::new(0.0, 3.0, 0.75),
-        ),
-    )];
-
     let mut camera_controller = camera::CameraController::from_origin_dir(
         glam::Vec3::new(0.0, 0.0, 5.0),
         glam::Vec3::new(0.0, 0.0, -1.0),
@@ -199,31 +182,34 @@ fn main() {
         )
     };
 
-    let mut scene_gpu = SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
-    scene_gpu.upload_probe(
+    let probe = ProbeGPU::new(
         platform.device.inner(),
         &platform.queue,
         image_data_raw,
         metadata.width,
         metadata.height,
     );
+
     let renderer = Renderer::new(
         &platform.device,
         (platform.size.width, platform.size.height),
         swapchain_format,
-        &scene_gpu,
     );
 
+    let scene = Scene::default();
+    let scene_gpu = SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
     let mut app_context = ApplicationContext {
         platform,
         event_loop_proxy,
         executor: Spawner::new(),
+        probe: Some(probe),
         scene,
         scene_gpu,
         limits,
         renderer,
         settings: Settings::new(),
     };
+    app_context.load_file("./assets/DamagedHelmet.glb").unwrap();
 
     //// Renderer:
 
@@ -255,6 +241,7 @@ fn main() {
     app_context.renderer.resize(
         &app_context.platform.device,
         &app_context.scene_gpu,
+        &app_context.probe.as_ref().unwrap(),
         (
             app_context.platform.size.width.max(1),
             app_context.platform.size.height.max(1),
@@ -282,6 +269,7 @@ fn main() {
                 app_context.renderer.resize(
                     &app_context.platform.device,
                     &app_context.scene_gpu,
+                    app_context.probe.as_ref().unwrap(),
                     new_size,
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);

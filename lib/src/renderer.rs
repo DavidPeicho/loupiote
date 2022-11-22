@@ -5,7 +5,8 @@ use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray};
 
 use crate::device::Device;
 use crate::errors::Error;
-use crate::scene::SceneGPU;
+use crate::scene::{self, SceneGPU};
+use crate::ProbeGPU;
 
 struct ScreenBoundResourcesGPU {
     ray_buffer: GPUBuffer<Ray>,
@@ -56,6 +57,7 @@ impl BindGroups {
         device: &Device,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
+        probe: &ProbeGPU,
         global_uniforms: &UniformBuffer<PerDrawUniforms>,
         camera_uniforms: &UniformBuffer<Camera>,
         render_target_sampler: &wgpu::Sampler,
@@ -66,6 +68,14 @@ impl BindGroups {
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
     ) -> Self {
+        let texture_info_view = match &scene_resources.atlas {
+            Some(atlas) => atlas.info_texture_view(),
+            _ => device.default_textures().non_filterable_1d(),
+        };
+        let atlas_view = match &scene_resources.atlas {
+            Some(atlas) => atlas.texture_view(),
+            _ => device.default_textures().filterable_2darray(),
+        };
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device.inner(),
@@ -92,9 +102,9 @@ impl BindGroups {
                 &scene_resources.vertex_buffer.inner(),
                 &scene_resources.light_buffer,
                 &scene_resources.materials_buffer,
-                scene_resources.probe_texture_view.as_ref().unwrap(),
-                scene_resources.atlas.as_ref().unwrap().info_texture_view(),
-                scene_resources.atlas.as_ref().unwrap().texture_view(),
+                &probe.view,
+                texture_info_view,
+                atlas_view,
                 global_uniforms,
                 device.sampler_nearest(),
             ),
@@ -142,18 +152,13 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(
-        device: &Device,
-        size: (u32, u32),
-        swapchain_format: wgpu::TextureFormat,
-        scene_resources: &SceneGPU,
-    ) -> Self {
+    pub fn new(device: &Device, size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
         let downsample_factor = 0.25;
         let downsampled_size = (
             (size.0 as f32 * downsample_factor) as u32,
             (size.1 as f32 * downsample_factor) as u32,
         );
-        let mut renderer = Renderer {
+        Self {
             screen_bound_resources: ScreenBoundResourcesGPU::new(device.inner(), size),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
                 device.inner(),
@@ -179,9 +184,7 @@ impl Renderer {
             size,
             downsample_factor,
             accumulate: false,
-        };
-        renderer.set_resources(device, scene_resources);
-        renderer
+        }
     }
 
     pub fn update_camera(&mut self, origin: glam::Vec3, right: glam::Vec3, up: glam::Vec3) {
@@ -190,13 +193,19 @@ impl Renderer {
         self.camera.up = up;
     }
 
-    pub fn resize(&mut self, device: &Device, scene_resources: &SceneGPU, size: (u32, u32)) {
+    pub fn resize(
+        &mut self,
+        device: &Device,
+        scene_resources: &SceneGPU,
+        probe: &ProbeGPU,
+        size: (u32, u32),
+    ) {
         self.size = size;
         let downsample_size = self.get_downsampled_size();
         self.screen_bound_resources = ScreenBoundResourcesGPU::new(device.inner(), self.size);
         self.downsampled_screen_bound_resources =
             ScreenBoundResourcesGPU::new(device.inner(), downsample_size);
-        self.set_resources(device, scene_resources);
+        self.set_resources(device, scene_resources, probe);
     }
 
     pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
@@ -219,6 +228,11 @@ impl Renderer {
             size = self.get_downsampled_size();
         }
 
+        let bindgroups = match bindgroups {
+            Some(val) => val,
+            None => return,
+        };
+
         self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &self.camera);
 
@@ -230,7 +244,7 @@ impl Renderer {
         // Generate a ray struct for every fragment.
         self.passes.rays.dispatch(
             encoder,
-            &bindgroups.as_ref().unwrap().generate_ray_pass,
+            &bindgroups.generate_ray_pass,
             dispatch_workoup_size,
         );
 
@@ -244,20 +258,18 @@ impl Renderer {
                 .update(&queue, &self.global_uniforms);
             self.passes.intersection.dispatch(
                 encoder,
-                &bindgroups.as_ref().unwrap().intersection_pass,
+                &bindgroups.intersection_pass,
                 dispatch_workoup_size,
             );
-            self.passes.shading.dispatch(
-                encoder,
-                &bindgroups.as_ref().unwrap().shading_pass,
-                dispatch_workoup_size,
-            );
+            self.passes
+                .shading
+                .dispatch(encoder, &bindgroups.shading_pass, dispatch_workoup_size);
         }
 
         // Accumulation.
         self.passes.accumulation.dispatch(
             encoder,
-            &bindgroups.as_ref().unwrap().accumulate_pass,
+            &bindgroups.accumulate_pass,
             dispatch_workoup_size,
         );
 
@@ -296,11 +308,12 @@ impl Renderer {
         )
     }
 
-    pub fn set_resources(&mut self, device: &Device, scene_resources: &SceneGPU) {
+    pub fn set_resources(&mut self, device: &Device, scene_resources: &SceneGPU, probe: &ProbeGPU) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             device,
             &self.screen_bound_resources,
             &scene_resources,
+            &probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
             device.sampler_nearest(),
@@ -315,6 +328,7 @@ impl Renderer {
             device,
             &self.downsampled_screen_bound_resources,
             &scene_resources,
+            &probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
             device.sampler_nearest(),

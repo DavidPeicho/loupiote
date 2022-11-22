@@ -49,6 +49,24 @@ pub struct Scene<T: Mesh<Vertex>> {
     pub atlas: Option<texture::TextureAtlas>,
 }
 
+impl<T: Mesh<Vertex>> Default for Scene<T> {
+    fn default() -> Self {
+        Self {
+            meshes: Vec::with_capacity(1),
+            instances: Vec::with_capacity(1),
+            materials: Vec::with_capacity(1),
+            blas: BLASArray {
+                entries: Vec::with_capacity(1),
+                nodes: Vec::with_capacity(1),
+                vertices: Vec::with_capacity(1),
+                indices: Vec::with_capacity(1),
+            },
+            lights: Vec::with_capacity(1),
+            atlas: None,
+        }
+    }
+}
+
 pub struct TextureAtlasGPU {
     pub texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
@@ -166,76 +184,22 @@ pub struct SceneGPU {
     pub index_buffer: GPUBuffer<u32>,
     pub vertex_buffer: GPUBuffer<Vertex>,
     pub light_buffer: GPUBuffer<Light>,
-    pub probe_texture: Option<wgpu::Texture>,
-    pub probe_texture_view: Option<wgpu::TextureView>,
     pub atlas: Option<TextureAtlasGPU>,
 }
 
-impl SceneGPU {
+pub struct ProbeGPU {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+}
+
+impl ProbeGPU {
     pub fn new(
-        device: &wgpu::Device,
-        instances: &[Instance],
-        materials: &[Material],
-        bvh: &[FlatNode],
-        indices: &[u32],
-        vertices: &[Vertex],
-        lights: &[Light],
-    ) -> Self {
-        SceneGPU {
-            instance_buffer: GPUBuffer::from_data(&device, instances),
-            materials_buffer: GPUBuffer::from_data(&device, materials),
-            bvh_buffer: GPUBuffer::from_data(&device, bvh),
-            index_buffer: GPUBuffer::from_data(&device, indices),
-            vertex_buffer: GPUBuffer::from_data(&device, vertices),
-            light_buffer: GPUBuffer::from_data(&device, lights),
-            probe_texture: None,
-            probe_texture_view: None,
-            atlas: None,
-        }
-    }
-
-    pub fn new_from_scene<T>(
-        scene: &Scene<T>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> SceneGPU
-    where
-        T: Mesh<Vertex>,
-    {
-        let mut resources = SceneGPU::new(
-            device,
-            &scene.instances,
-            &scene.materials,
-            &scene.blas.nodes,
-            &scene.blas.indices,
-            &scene.blas.vertices,
-            &scene.lights,
-        );
-        resources.instance_buffer.update(&queue, &scene.instances);
-        resources.materials_buffer.update(&queue, &scene.materials);
-        resources.bvh_buffer.update(&queue, &scene.blas.nodes);
-        resources.index_buffer.update(&queue, &scene.blas.indices);
-        resources.vertex_buffer.update(&queue, &scene.blas.vertices);
-        resources.light_buffer.update(&queue, &scene.lights);
-
-        // Build atlas and copy to GPU.
-        if let Some(atlas) = scene.atlas.as_ref() {
-            resources.atlas = Some(TextureAtlasGPU::new(device, queue, atlas));
-        }
-
-        // Upload texture atlas.
-        // @todo
-        resources
-    }
-
-    pub fn upload_probe(
-        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         data: &[u8],
         width: u32,
         height: u32,
-    ) {
+    ) -> Self {
         let probe_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cubemap"),
             size: wgpu::Extent3d {
@@ -273,7 +237,65 @@ impl SceneGPU {
             },
         );
 
-        self.probe_texture = Some(probe_texture);
-        self.probe_texture_view = Some(probe_texture_view);
+        Self {
+            texture: probe_texture,
+            view: probe_texture_view,
+        }
+    }
+}
+
+impl SceneGPU {
+    pub fn new(
+        device: &wgpu::Device,
+        instances: &[Instance],
+        materials: &[Material],
+        bvh: &[FlatNode],
+        indices: &[u32],
+        vertices: &[Vertex],
+        lights: &[Light],
+    ) -> Self {
+        SceneGPU {
+            instance_buffer: GPUBuffer::from_data(&device, instances),
+            materials_buffer: GPUBuffer::from_data(&device, materials),
+            bvh_buffer: GPUBuffer::from_data(&device, bvh),
+            index_buffer: GPUBuffer::from_data(&device, indices),
+            vertex_buffer: GPUBuffer::from_data(&device, vertices),
+            light_buffer: GPUBuffer::from_data(&device, lights),
+            atlas: None,
+        }
+    }
+
+    pub fn new_from_scene<T>(
+        scene: &Scene<T>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> SceneGPU
+    where
+        T: Mesh<Vertex>,
+    {
+        let mut resources = SceneGPU::new(
+            device,
+            &scene.instances,
+            &scene.materials,
+            &scene.blas.nodes,
+            &scene.blas.indices,
+            &scene.blas.vertices,
+            &scene.lights,
+        );
+        resources.instance_buffer.update(&queue, &scene.instances);
+        resources.materials_buffer.update(&queue, &scene.materials);
+        resources.bvh_buffer.update(&queue, &scene.blas.nodes);
+        resources.index_buffer.update(&queue, &scene.blas.indices);
+        resources.vertex_buffer.update(&queue, &scene.blas.vertices);
+        resources.light_buffer.update(&queue, &scene.lights);
+
+        // Build atlas and copy to GPU.
+        if let Some(atlas) = scene.atlas.as_ref() {
+            resources.atlas = Some(TextureAtlasGPU::new(device, queue, atlas));
+        }
+
+        // Upload texture atlas.
+        // @todo
+        resources
     }
 }

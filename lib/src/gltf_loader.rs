@@ -15,7 +15,7 @@ pub struct GLTFLoaderOptions {
 pub struct ProxyMesh {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
-    uvs: Vec<[f32; 2]>,
+    uvs: Option<Vec<[f32; 2]>>,
     indices: Vec<u32>,
 }
 impl Mesh<Vertex> for ProxyMesh {
@@ -26,7 +26,10 @@ impl Mesh<Vertex> for ProxyMesh {
     fn vertex(&self, index: u32) -> Vertex {
         let pos = self.positions[index as usize];
         let normal = self.normals[index as usize];
-        let uv = self.uvs[index as usize];
+        let uv = match &self.uvs {
+            Some(u) => u[index as usize],
+            None => [0.0, 0.0],
+        };
         Vertex {
             position: [pos[0], pos[1], pos[2], uv[0]],
             normal: [normal[0], normal[1], normal[2], uv[1]],
@@ -105,14 +108,15 @@ pub fn load_gltf<P: AsRef<Path>>(
         let mut positions: Vec<[f32; 3]> = Vec::new();
         let mut normals: Vec<[f32; 3]> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-        let mut uvs: Vec<[f32; 2]> = Vec::new();
+        let mut uvs: Option<Vec<[f32; 2]>> = None;
 
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
             positions.extend(reader.read_positions().unwrap());
             normals.extend(reader.read_normals().unwrap());
             if let Some(texcoord) = reader.read_tex_coords(0) {
-                uvs.extend(texcoord.into_f32());
+                uvs.get_or_insert_with(|| Vec::new())
+                    .extend(texcoord.into_f32());
             }
             indices.extend(
                 reader
