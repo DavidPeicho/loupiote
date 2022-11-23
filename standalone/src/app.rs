@@ -52,15 +52,6 @@ impl<'a> ApplicationContext<'a> {
                 atlas_max_size: self.limits.max_texture_dimension_1d,
             },
         )?;
-        // @todo: parse from file.
-        scene.lights = vec![uniforms::Light::from_matrix(
-            glam::Mat4::from_scale_rotation_translation(
-                glam::Vec3::new(1.0, 1.0, 1.0),
-                glam::Quat::from_rotation_x(1.5),
-                glam::Vec3::new(0.0, 3.0, 0.75),
-            ),
-        )];
-
         self.scene_gpu =
             SceneGPU::new_from_scene(&scene, self.platform.device.inner(), &self.platform.queue);
         self.scene = scene;

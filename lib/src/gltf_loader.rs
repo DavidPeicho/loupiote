@@ -200,7 +200,7 @@ pub fn load_gltf<P: AsRef<Path>>(
         instances,
         materials,
         blas,
-        lights: vec![],
         atlas,
+        lights: vec![Default::default()],
     })
 }
