@@ -28,119 +28,7 @@ mod gui;
 mod camera;
 use camera::CameraMoveCommand;
 
-async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
-    let event_loop: winit::event_loop::EventLoop<Event> =
-        winit::event_loop::EventLoop::with_user_event();
-    let mut builder = winit::window::WindowBuilder::new();
-    builder = builder.with_title("Albedo Pathtracer");
-
-    let window = builder.build(&event_loop).unwrap();
-
-    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-    let (size, surface) = unsafe {
-        let size = window.inner_size();
-        let surface = instance.create_surface(&window);
-        (size, surface)
-    };
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        })
-        .await
-        .expect("No suitable GPU adapters found on the system!");
-
-    let optional_features: wgpu::Features = wgpu::Features::default();
-    let required_features: wgpu::Features =
-        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-
-    let adapter_features: wgpu::Features = wgpu::Features::default();
-    let needed_limits = wgpu::Limits {
-        max_storage_buffers_per_shader_stage: 8,
-        max_storage_buffer_binding_size: 256 * 1024 * 1024,
-        ..wgpu::Limits::default()
-    };
-    let trace_dir = std::env::var("WGPU_TRACE");
-
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: (optional_features & adapter_features) | required_features,
-                limits: needed_limits,
-            },
-            trace_dir.ok().as_ref().map(std::path::Path::new),
-        )
-        .await
-        .expect("Unable to find a suitable GPU adapter!");
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        use winit::platform::web::WindowExtWebSys;
-        let query_string = web_sys::window().unwrap().location().search().unwrap();
-        let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(log::Level::Error);
-        console_log::init_with_level(level).expect("could not initialize logger");
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        // On wasm, append the canvas to the document body
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
-                    .ok()
-            })
-            .expect("couldn't append canvas to document body");
-    }
-
-    (
-        event_loop,
-        Plaftorm {
-            instance,
-            adapter,
-            device: Device::new(device),
-            window,
-            surface,
-            queue,
-            size,
-        },
-    )
-}
-
-// fn watch_shading_shader(
-//     hotwatch: &mut hotwatch::Hotwatch,
-//     device_mutex: &Arc<Mutex<wgpu::Device>>,
-//     renderer_mutex: &Arc<Mutex<Renderer>>,
-// ) {
-//     const PATH: &str = "../../albedo/albedo/crates/albedo_rtx/src/shaders/shading.comp.spv";
-
-//     let device = device_mutex.clone();
-//     let renderer = renderer_mutex.clone();
-//     hotwatch
-//         .watch(PATH, move |event: hotwatch::Event| {
-//             if let hotwatch::Event::Write(_) = event {
-//                 let file_data = utils::load_file(PATH);
-//                 let desc = wgpu::ShaderModuleDescriptor {
-//                     label: Some("Shading"),
-//                     source: wgpu::util::make_spirv(&file_data[..]),
-//                 };
-//                 println!("[ SHADER COMPILATION ]: updating '{}'...", PATH);
-//                 renderer
-//                     .lock()
-//                     .unwrap()
-//                     .passes
-//                     .shading
-//                     .set_shader(&device.lock().unwrap(), &desc);
-//                 println!("[ SHADER COMPILATION ]: '{}' updated!", PATH);
-//             }
-//         })
-//         .expect("failed to watch file!");
-// }
-
-fn main() {
-    let (event_loop, platform) = pollster::block_on(setup());
+fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) {
     let event_loop_proxy = event_loop.create_proxy();
 
     println!("\n============================================================");
@@ -166,7 +54,6 @@ fn main() {
         glam::Vec3::new(0.0, 0.0, 5.0),
         glam::Vec3::new(0.0, 0.0, -1.0),
     );
-    camera_controller.move_speed_factor = 0.15;
     camera_controller.rotation_enabled = false;
 
     //// Load HDRi enviromment.
@@ -213,9 +100,7 @@ fn main() {
 
     //// Renderer:
 
-    #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
-    #[cfg(not(target_arch = "wasm32"))]
     let start_time = std::time::Instant::now();
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
@@ -352,12 +237,9 @@ fn main() {
             }
             winit::event::Event::RedrawRequested(_) => {
                 // Updates.
-                let duration = std::time::Instant::now() - last_time;
-
-                // @todo: the app should render whenever it can.
-                // However, MacOS doesn't re-render properly when the window
-                // isn't focused.
-                last_time += duration;
+                let now = std::time::Instant::now();
+                let delta = now.duration_since(last_time).as_secs_f32();
+                last_time = now;
 
                 let frame = surface
                     .get_current_texture()
@@ -365,10 +247,6 @@ fn main() {
                 let view = frame
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
-
-                // @todo: this assumes 60FPS, it shouldn't.
-                let delta =
-                    (duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1.0e-9) * 60.0;
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
@@ -395,7 +273,7 @@ fn main() {
                 // Render GUI.
                 gui.windows
                     .performance_info_window
-                    .set_global_performance(duration.as_millis() as f64);
+                    .set_global_performance(delta);
 
                 let gui_cmd_buffers = gui.render(
                     &mut app_context,
@@ -418,4 +296,118 @@ fn main() {
             _ => {}
         }
     });
+}
+
+async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
+    let event_loop: winit::event_loop::EventLoop<Event> =
+        winit::event_loop::EventLoop::with_user_event();
+    let mut builder = winit::window::WindowBuilder::new();
+    builder = builder.with_title("Albedo Pathtracer");
+
+    let window = builder.build(&event_loop).unwrap();
+
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+    let (size, surface) = unsafe {
+        let size = window.inner_size();
+        let surface = instance.create_surface(&window);
+        (size, surface)
+    };
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        })
+        .await
+        .expect("No suitable GPU adapters found on the system!");
+
+    let optional_features: wgpu::Features = wgpu::Features::default();
+    let required_features: wgpu::Features =
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+
+    let adapter_features: wgpu::Features = wgpu::Features::default();
+    let needed_limits = wgpu::Limits {
+        max_storage_buffers_per_shader_stage: 8,
+        max_storage_buffer_binding_size: 256 * 1024 * 1024,
+        ..wgpu::Limits::default()
+    };
+    let trace_dir = std::env::var("WGPU_TRACE");
+
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                features: (optional_features & adapter_features) | required_features,
+                limits: needed_limits,
+            },
+            trace_dir.ok().as_ref().map(std::path::Path::new),
+        )
+        .await
+        .expect("Unable to find a suitable GPU adapter!");
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{prelude::*, JsCast};
+        use winit::platform::web::WindowExtWebSys;
+        console_log::init_with_level(log::Level::Error).expect("could not initialize logger");
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        // On wasm, append the canvas to the document body
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("couldn't append canvas to document body");
+    }
+
+    (
+        event_loop,
+        Plaftorm {
+            instance,
+            adapter,
+            device: Device::new(device),
+            window,
+            surface,
+            queue,
+            size,
+        },
+    )
+}
+
+fn main() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{prelude::*, JsCast};
+        wasm_bindgen_futures::spawn_local(async move {
+            let setup = setup().await;
+            let start_closure = Closure::once_into_js(move || run(setup));
+
+            // make sure to handle JS exceptions thrown inside start.
+            // Otherwise wasm_bindgen_futures Queue would break and never handle any tasks again.
+            // This is required, because winit uses JS exception for control flow to escape from `run`.
+            if let Err(error) = call_catch(&start_closure) {
+                let is_control_flow_exception =
+                    error.dyn_ref::<js_sys::Error>().map_or(false, |e| {
+                        e.message().includes("Using exceptions for control flow", 0)
+                    });
+
+                if !is_control_flow_exception {
+                    web_sys::console::error_1(&error);
+                }
+            }
+
+            #[wasm_bindgen]
+            extern "C" {
+                #[wasm_bindgen(catch, js_namespace = Function, js_name = "prototype.call.call")]
+                fn call_catch(this: &JsValue) -> Result<(), JsValue>;
+            }
+        });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let setup = pollster::block_on(setup());
+        run(setup);
+    };
 }

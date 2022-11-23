@@ -29,9 +29,9 @@ impl CameraController {
     pub fn new() -> Self {
         CameraController {
             move_damping_factor: 0.5,
-            move_speed_factor: 1.0,
+            move_speed_factor: 2.0,
             rot_damping_factor: 0.5,
-            rot_speed_factor: glam::Vec2::new(1.0, 1.0),
+            rot_speed_factor: glam::Vec2::new(20.0, 20.0),
             direction: glam::Vec3::new(0.0, 0.0, -1.0),
             rotation_enabled: true,
             translation_enabled: true,

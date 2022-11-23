@@ -1,8 +1,8 @@
+use std::path;
+
 use albedo_lib::{
     load_gltf, Device, GLTFLoaderOptions, ProbeGPU, ProxyMesh, Renderer, Scene, SceneGPU,
 };
-use albedo_rtx::uniforms;
-use std::path;
 
 use crate::{commands, errors::Error, Event, Settings, Spawner};
 
@@ -16,10 +16,13 @@ pub struct Plaftorm {
     pub size: winit::dpi::PhysicalSize<u32>,
 }
 
-pub struct ApplicationContext<'a> {
+pub struct ApplicationContext {
     pub platform: Plaftorm,
     pub event_loop_proxy: winit::event_loop::EventLoopProxy<Event>,
-    pub executor: Spawner<'a>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub executor: Spawner<'static>,
+    #[cfg(target_arch = "wasm32")]
+    pub executor: Spawner,
     pub renderer: Renderer,
     pub scene: Scene<ProxyMesh>,
     pub scene_gpu: SceneGPU,
@@ -28,7 +31,7 @@ pub struct ApplicationContext<'a> {
     pub settings: Settings,
 }
 
-impl<'a> ApplicationContext<'a> {
+impl ApplicationContext {
     pub fn run_command(&mut self, command: commands::EditorCommand) {
         match command {
             commands::EditorCommand::ToggleAccumulation => {

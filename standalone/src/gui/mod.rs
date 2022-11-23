@@ -201,6 +201,8 @@ fn render_file_menu(
             context.executor.spawn_local(async move {
                 let handle = dialog.await;
                 if let Some(file) = handle {
+                    // @todo: support wasm.
+                    #[cfg(not(target_arch = "wasm32"))]
                     event_loop_proxy
                         .send_event(Event::LoadFile(file.path().to_path_buf()))
                         .ok();
@@ -216,6 +218,8 @@ fn render_screenshot_menu(
     context: &mut crate::ApplicationContext,
 ) -> Result<(), Error> {
     let platform = &context.platform;
+    // @todo: support wasm.
+    #[cfg(not(target_arch = "wasm32"))]
     if ui.button("📷").clicked() {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("image", &["png", "jpg"])
@@ -225,6 +229,8 @@ fn render_screenshot_menu(
         context.executor.spawn_local(async move {
             let handle = dialog.await;
             if let Some(file) = handle {
+                // @todo: support wasm.
+                #[cfg(not(target_arch = "wasm32"))]
                 event_loop_proxy
                     .send_event(Event::SaveScreenshot(file.path().to_path_buf()))
                     .ok();

@@ -15,9 +15,9 @@ impl PerformanceInfoWindow {
         }
     }
 
-    pub fn set_global_performance(&mut self, delta: f64) {
+    pub fn set_global_performance(&mut self, delta: f32) {
         self.delta = format!("{:.3}ms", delta);
-        self.fps = format!("{} FPS", (1000.0 / delta) as u16);
+        self.fps = format!("{} FPS", (1.0 / delta) as u16);
     }
 
     pub fn render(&mut self, context: &egui::Context) {
