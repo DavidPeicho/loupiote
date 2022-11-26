@@ -42,6 +42,9 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         alpha_mode: wgpu::CompositeAlphaMode::Auto,
         width: platform.size.width,
         height: platform.size.height,
+        #[cfg(target_arch = "wasm32")]
+        present_mode: wgpu::PresentMode::Fifo,
+        #[cfg(not(target_arch = "wasm32"))]
         present_mode: wgpu::PresentMode::Immediate,
     };
 
@@ -306,6 +309,21 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
 
     let window = builder.build(&event_loop).unwrap();
 
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{prelude::*, JsCast};
+        use winit::platform::web::WindowExtWebSys;
+        // On wasm, append the canvas to the document body
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("couldn't append canvas to document body");
+    }
+
     let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let (size, surface) = unsafe {
         let size = window.inner_size();
@@ -345,23 +363,6 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::{prelude::*, JsCast};
-        use winit::platform::web::WindowExtWebSys;
-        console_log::init_with_level(log::Level::Error).expect("could not initialize logger");
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        // On wasm, append the canvas to the document body
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
-                    .ok()
-            })
-            .expect("couldn't append canvas to document body");
-    }
-
     (
         event_loop,
         Plaftorm {
@@ -377,12 +378,21 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
 }
 
 fn main() {
+    println!("Main");
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::{prelude::*, JsCast};
+
+        console_log::init_with_level(log::Level::Error).expect("could not initialize logger");
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+
         wasm_bindgen_futures::spawn_local(async move {
+            println!("Spawn Local");
             let setup = setup().await;
+            println!("Post Setup");
             let start_closure = Closure::once_into_js(move || run(setup));
+
+            println!("Before start closure");
 
             // make sure to handle JS exceptions thrown inside start.
             // Otherwise wasm_bindgen_futures Queue would break and never handle any tasks again.
