@@ -48,8 +48,28 @@ impl ApplicationContext {
         }
     }
 
+    pub fn load_env<P: AsRef<std::path::Path>>(&mut self, path: P) {
+        let file_reader = std::io::BufReader::new(std::fs::File::open(path).unwrap());
+        let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).unwrap();
+        let metadata = decoder.metadata();
+        let image_data = decoder.read_image_native().unwrap();
+        let image_data_raw = unsafe {
+            std::slice::from_raw_parts(
+                image_data.as_ptr() as *const u8,
+                image_data.len() * std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>(),
+            )
+        };
+        self.probe = Some(ProbeGPU::new(
+            self.platform.device.inner(),
+            &self.platform.queue,
+            image_data_raw,
+            metadata.width,
+            metadata.height,
+        ));
+    }
+
     pub fn load_file<P: AsRef<path::Path>>(&mut self, path: P) -> Result<(), Error> {
-        let mut scene = load_gltf(
+        let scene = load_gltf(
             &path,
             &GLTFLoaderOptions {
                 atlas_max_size: self.limits.max_texture_dimension_1d,
@@ -58,11 +78,8 @@ impl ApplicationContext {
         self.scene_gpu =
             SceneGPU::new_from_scene(&scene, self.platform.device.inner(), &self.platform.queue);
         self.scene = scene;
-        self.renderer.set_resources(
-            &self.platform.device,
-            &self.scene_gpu,
-            self.probe.as_ref().unwrap(),
-        );
+        self.renderer
+            .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
         Ok(())
     }
 

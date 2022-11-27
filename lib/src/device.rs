@@ -1,16 +1,72 @@
 use wgpu;
 
 pub struct DefaultTextures {
-    filterable: wgpu::TextureView,
-    non_filterable: wgpu::TextureView,
+    filterable_2d: wgpu::TextureView,
+    filterable_2darray: wgpu::TextureView,
+    non_filterable_1d: wgpu::TextureView,
 }
 
 impl DefaultTextures {
+    pub fn new(device: &wgpu::Device) -> Self {
+        const width: u32 = 1;
+        const height: u32 = 1;
+        const depth_or_array_layers: u32 = 1;
+        const mip_level_count: u32 = 1;
+        const sample_count: u32 = 1;
+
+        let filterable_2d = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Filterable 2D Array Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers,
+            },
+            mip_level_count,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        });
+
+        let non_filterable_1d = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Non-Filterable Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D1,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        });
+        Self {
+            filterable_2d: filterable_2d.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                ..wgpu::TextureViewDescriptor::default()
+            }),
+            filterable_2darray: filterable_2d.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..wgpu::TextureViewDescriptor::default()
+            }),
+            non_filterable_1d: non_filterable_1d.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D1),
+                ..wgpu::TextureViewDescriptor::default()
+            }),
+        }
+    }
+}
+
+impl DefaultTextures {
+    pub fn filterable_2d(&self) -> &wgpu::TextureView {
+        &self.filterable_2d
+    }
     pub fn filterable_2darray(&self) -> &wgpu::TextureView {
-        &self.filterable
+        &self.filterable_2darray
     }
     pub fn non_filterable_1d(&self) -> &wgpu::TextureView {
-        &self.non_filterable
+        &self.non_filterable_1d
     }
 }
 
@@ -24,42 +80,6 @@ pub struct Device {
 
 impl Device {
     pub fn new(device: wgpu::Device) -> Self {
-        let filterable_2darray = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Default Filterable Texture"),
-                size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            })
-            .create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..wgpu::TextureViewDescriptor::default()
-            });
-        let non_filterable_1d = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Default Non-Filterable Texture"),
-                size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D1,
-                format: wgpu::TextureFormat::R8Uint,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            })
-            .create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D1),
-                ..wgpu::TextureViewDescriptor::default()
-            });
         let default_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 0,
@@ -84,12 +104,10 @@ impl Device {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
+        let default_textures = DefaultTextures::new(&device);
         Self {
             device,
-            default_textures: DefaultTextures {
-                filterable: filterable_2darray,
-                non_filterable: non_filterable_1d,
-            },
+            default_textures,
             default_buffer,
             sampler_nearest,
             sampler_linear,

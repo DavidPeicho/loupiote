@@ -57,7 +57,7 @@ impl BindGroups {
         device: &Device,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
-        probe: &ProbeGPU,
+        probe: Option<&ProbeGPU>,
         global_uniforms: &UniformBuffer<PerDrawUniforms>,
         camera_uniforms: &UniformBuffer<Camera>,
         render_target_sampler: &wgpu::Sampler,
@@ -75,6 +75,10 @@ impl BindGroups {
         let atlas_view = match &scene_resources.atlas {
             Some(atlas) => atlas.texture_view(),
             _ => device.default_textures().filterable_2darray(),
+        };
+        let probe = match probe {
+            Some(p) => &p.view,
+            _ => device.default_textures().filterable_2d(),
         };
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
@@ -102,7 +106,7 @@ impl BindGroups {
                 &scene_resources.vertex_buffer.inner(),
                 &scene_resources.light_buffer,
                 &scene_resources.materials_buffer,
-                &probe.view,
+                probe,
                 texture_info_view,
                 atlas_view,
                 global_uniforms,
@@ -197,7 +201,7 @@ impl Renderer {
         &mut self,
         device: &Device,
         scene_resources: &SceneGPU,
-        probe: &ProbeGPU,
+        probe: Option<&ProbeGPU>,
         size: (u32, u32),
     ) {
         self.size = size;
@@ -308,12 +312,17 @@ impl Renderer {
         )
     }
 
-    pub fn set_resources(&mut self, device: &Device, scene_resources: &SceneGPU, probe: &ProbeGPU) {
+    pub fn set_resources(
+        &mut self,
+        device: &Device,
+        scene_resources: &SceneGPU,
+        probe: Option<&ProbeGPU>,
+    ) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             device,
             &self.screen_bound_resources,
             &scene_resources,
-            &probe,
+            probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
             device.sampler_nearest(),
@@ -328,7 +337,7 @@ impl Renderer {
             device,
             &self.downsampled_screen_bound_resources,
             &scene_resources,
-            &probe,
+            probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
             device.sampler_nearest(),

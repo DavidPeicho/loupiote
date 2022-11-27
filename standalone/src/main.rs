@@ -59,27 +59,6 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
     );
     camera_controller.rotation_enabled = false;
 
-    //// Load HDRi enviromment.
-    let file_reader =
-        std::io::BufReader::new(std::fs::File::open("./assets/uffizi-large.hdr").unwrap());
-    let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).unwrap();
-    let metadata = decoder.metadata();
-    let image_data = decoder.read_image_native().unwrap();
-    let image_data_raw = unsafe {
-        std::slice::from_raw_parts(
-            image_data.as_ptr() as *const u8,
-            image_data.len() * std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>(),
-        )
-    };
-
-    let probe = ProbeGPU::new(
-        platform.device.inner(),
-        &platform.queue,
-        image_data_raw,
-        metadata.width,
-        metadata.height,
-    );
-
     let renderer = Renderer::new(
         &platform.device,
         (platform.size.width, platform.size.height),
@@ -92,13 +71,14 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         platform,
         event_loop_proxy,
         executor: Spawner::new(),
-        probe: Some(probe),
+        probe: None,
         scene,
         scene_gpu,
         limits,
         renderer,
         settings: Settings::new(),
     };
+    app_context.load_env("./assets/uffizi-large.hdr");
     app_context.load_file("./assets/DamagedHelmet.glb").unwrap();
 
     //// Renderer:
@@ -129,7 +109,7 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
     app_context.renderer.resize(
         &app_context.platform.device,
         &app_context.scene_gpu,
-        &app_context.probe.as_ref().unwrap(),
+        app_context.probe.as_ref(),
         (
             app_context.platform.size.width.max(1),
             app_context.platform.size.height.max(1),
@@ -157,7 +137,7 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
                 app_context.renderer.resize(
                     &app_context.platform.device,
                     &app_context.scene_gpu,
-                    app_context.probe.as_ref().unwrap(),
+                    app_context.probe.as_ref(),
                     new_size,
                 );
                 println!("{:?}, {:?}", new_size.0, new_size.1);
