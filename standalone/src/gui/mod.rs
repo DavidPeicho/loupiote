@@ -73,7 +73,6 @@ impl GUI {
         surface_config: &wgpu::SurfaceConfiguration,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
-        delta: f64,
     ) -> Vec<wgpu::CommandBuffer> {
         let windows = &mut self.windows;
         let raw_inputs = self.platform.take_egui_input(&context.platform.window);

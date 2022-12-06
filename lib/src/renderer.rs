@@ -11,7 +11,6 @@ use crate::ProbeGPU;
 struct ScreenBoundResourcesGPU {
     ray_buffer: GPUBuffer<Ray>,
     intersection_buffer: GPUBuffer<Intersection>,
-    render_target: wgpu::Texture,
     render_target_view: wgpu::TextureView,
 }
 
@@ -39,7 +38,6 @@ impl ScreenBoundResourcesGPU {
             ),
             intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
-            render_target,
         }
     }
 }
@@ -112,11 +110,21 @@ impl BindGroups {
                 global_uniforms,
                 device.sampler_nearest(),
             ),
+            #[cfg(not(target_arch = "wasm32"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device.inner(),
                 &screen_resources.ray_buffer,
-                &screen_resources.render_target_view,
                 global_uniforms,
+                &screen_resources.render_target_view,
+            ),
+            #[cfg(target_arch = "wasm32")]
+            accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
+                device.inner(),
+                &screen_resources.ray_buffer,
+                global_uniforms,
+                &screen_resources.render_target_view,
+                &screen_resources.render_target_view,
+                &render_target_sampler,
             ),
             blit_pass: blit_pass.create_frame_bind_groups(
                 device.inner(),

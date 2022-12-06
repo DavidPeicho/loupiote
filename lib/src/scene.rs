@@ -1,9 +1,12 @@
+use std::default;
 use std::num::NonZeroU32;
 
 use albedo_backend::GPUBuffer;
 use albedo_bvh::{BLASArray, FlatNode, Mesh};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms::{Instance, Light, Material};
+
+use crate::ProxyMesh;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -40,8 +43,8 @@ impl ImageData {
     }
 }
 
-pub struct Scene<T: Mesh<Vertex>> {
-    pub meshes: Vec<T>,
+pub struct Scene {
+    pub meshes: Vec<ProxyMesh>,
     pub instances: Vec<Instance>,
     pub materials: Vec<Material>,
     pub blas: BLASArray<Vertex>,
@@ -49,19 +52,31 @@ pub struct Scene<T: Mesh<Vertex>> {
     pub atlas: Option<texture::TextureAtlas>,
 }
 
-impl<T: Mesh<Vertex>> Default for Scene<T> {
+impl Default for Scene {
     fn default() -> Self {
         Self {
-            meshes: Vec::with_capacity(1),
-            instances: Vec::with_capacity(1),
-            materials: Vec::with_capacity(1),
+            meshes: vec![],
+            instances: vec![Instance {
+                ..Default::default()
+            }],
+            materials: vec![Material {
+                ..Default::default()
+            }],
             blas: BLASArray {
-                entries: Vec::with_capacity(1),
-                nodes: Vec::with_capacity(1),
-                vertices: Vec::with_capacity(1),
-                indices: Vec::with_capacity(1),
+                entries: vec![albedo_bvh::BLASEntryDescriptor {
+                    node: albedo_bvh::INVALID_INDEX,
+                    vertex: albedo_bvh::INVALID_INDEX,
+                    index: albedo_bvh::INVALID_INDEX,
+                }],
+                nodes: vec![FlatNode {
+                    ..Default::default()
+                }],
+                vertices: vec![Vertex {
+                    ..Default::default()
+                }],
+                indices: vec![albedo_bvh::INVALID_INDEX],
             },
-            lights: Vec::with_capacity(1),
+            lights: vec![Light::new()],
             atlas: None,
         }
     }
@@ -265,14 +280,7 @@ impl SceneGPU {
         }
     }
 
-    pub fn new_from_scene<T>(
-        scene: &Scene<T>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> SceneGPU
-    where
-        T: Mesh<Vertex>,
-    {
+    pub fn new_from_scene(scene: &Scene, device: &wgpu::Device, queue: &wgpu::Queue) -> SceneGPU {
         let mut resources = SceneGPU::new(
             device,
             &scene.instances,

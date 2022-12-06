@@ -1,7 +1,6 @@
 use winit;
 
 use albedo_lib::*;
-use albedo_rtx::uniforms;
 
 mod app;
 use app::*;
@@ -28,12 +27,25 @@ mod gui;
 mod camera;
 use camera::CameraMoveCommand;
 
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        println!($( $t )*);
+    }
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) {
     let event_loop_proxy = event_loop.create_proxy();
 
-    println!("\n============================================================");
-    println!("                   🚀 Albedo Pathtracer 🚀                   ");
-    println!("============================================================\n");
+    log!("\n============================================================");
+    log!("                   🚀 Albedo Pathtracer 🚀                   ");
+    log!("============================================================\n");
 
     let swapchain_format = platform.surface.get_supported_formats(&platform.adapter)[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
@@ -78,13 +90,20 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         renderer,
         settings: Settings::new(),
     };
-    app_context.load_env("./assets/uffizi-large.hdr");
-    app_context.load_file("./assets/DamagedHelmet.glb").unwrap();
 
-    //// Renderer:
+    // app_context.load_env("./assets/uffizi-large.hdr");
+    // app_context.load_file("./assets/DamagedHelmet.glb").unwrap();
 
+    #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
-    let start_time = std::time::Instant::now();
+
+    #[cfg(target_arch = "wasm32")]
+    let win_performance = web_sys::window()
+        .unwrap()
+        .performance()
+        .expect("performance should be available");
+    #[cfg(target_arch = "wasm32")]
+    let mut last_time = win_performance.now();
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
@@ -220,8 +239,16 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
             }
             winit::event::Event::RedrawRequested(_) => {
                 // Updates.
-                let now = std::time::Instant::now();
-                let delta = now.duration_since(last_time).as_secs_f32();
+                #[cfg(not(target_arch = "wasm32"))]
+                let (now, delta) = {
+                    let now = std::time::Instant::now();
+                    (now, now.duration_since(last_time).as_secs_f32())
+                };
+                #[cfg(target_arch = "wasm32")]
+                let (now, delta) = {
+                    let now = win_performance.now();
+                    (now, (now - last_time) as f32)
+                };
                 last_time = now;
 
                 let frame = surface
@@ -258,13 +285,8 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
                     .performance_info_window
                     .set_global_performance(delta);
 
-                let gui_cmd_buffers = gui.render(
-                    &mut app_context,
-                    &surface_config,
-                    &mut encoder_gui,
-                    &view,
-                    start_time.elapsed().as_secs_f64(),
-                );
+                let gui_cmd_buffers =
+                    gui.render(&mut app_context, &surface_config, &mut encoder_gui, &view);
 
                 app_context.platform.queue.submit(
                     std::iter::once(encoder.finish()).chain(

@@ -82,10 +82,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
     ImageData::new(buffer, image.width, image.height)
 }
 
-pub fn load_gltf<P: AsRef<Path>>(
-    file_path: &P,
-    opts: &GLTFLoaderOptions,
-) -> Result<Scene<ProxyMesh>, Error> {
+pub fn load_gltf<P: AsRef<Path>>(file_path: &P, opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
     let (doc, buffers, images) = match gltf::import(file_path) {
         Ok(tuple) => tuple,
         Err(err) => {

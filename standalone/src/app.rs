@@ -1,8 +1,6 @@
 use std::path;
 
-use albedo_lib::{
-    load_gltf, Device, GLTFLoaderOptions, ProbeGPU, ProxyMesh, Renderer, Scene, SceneGPU,
-};
+use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 
 use crate::{commands, errors::Error, Event, Settings, Spawner};
 
@@ -24,7 +22,7 @@ pub struct ApplicationContext {
     #[cfg(target_arch = "wasm32")]
     pub executor: Spawner,
     pub renderer: Renderer,
-    pub scene: Scene<ProxyMesh>,
+    pub scene: Scene,
     pub scene_gpu: SceneGPU,
     pub probe: Option<ProbeGPU>,
     pub limits: wgpu::Limits,
