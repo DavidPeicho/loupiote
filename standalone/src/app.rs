@@ -2,7 +2,7 @@ use std::path;
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 
-use crate::{commands, errors::Error, Event, Settings, Spawner};
+use crate::{commands, errors::Error, event::LoadEvent, logger::log, Event, Settings, Spawner};
 
 pub struct Plaftorm {
     pub instance: wgpu::Instance,
@@ -42,13 +42,16 @@ impl ApplicationContext {
         // @todo: handle errors.
         match event {
             Event::SaveScreenshot(path) => self.save_screenshot(path),
-            Event::LoadFile(path) => self.load_file(path).unwrap(),
+            Event::Load(load) => match load {
+                LoadEvent::GLTF(data) => self.load_file(&data[..]).unwrap(),
+                LoadEvent::Env(data) => self.load_env(&data[..]),
+            },
         }
     }
 
-    pub fn load_env<P: AsRef<std::path::Path>>(&mut self, path: P) {
-        let file_reader = std::io::BufReader::new(std::fs::File::open(path).unwrap());
-        let decoder = image::codecs::hdr::HdrDecoder::new(file_reader).unwrap();
+    pub fn load_env(&mut self, data: &[u8]) {
+        log!("Loading env...");
+        let decoder = image::codecs::hdr::HdrDecoder::new(data).unwrap();
         let metadata = decoder.metadata();
         let image_data = decoder.read_image_native().unwrap();
         let image_data_raw = unsafe {
@@ -64,11 +67,14 @@ impl ApplicationContext {
             metadata.width,
             metadata.height,
         ));
+        self.renderer
+            .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
     }
 
-    pub fn load_file<P: AsRef<path::Path>>(&mut self, path: P) -> Result<(), Error> {
+    pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
+        log!("Loading GLB...");
         let scene = load_gltf(
-            &path,
+            data,
             &GLTFLoaderOptions {
                 atlas_max_size: self.limits.max_texture_dimension_1d,
             },

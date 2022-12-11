@@ -12,12 +12,14 @@ struct ScreenBoundResourcesGPU {
     ray_buffer: GPUBuffer<Ray>,
     intersection_buffer: GPUBuffer<Intersection>,
     render_target_view: wgpu::TextureView,
+    #[cfg(target_arch = "wasm32")]
+    render_target_view2: wgpu::TextureView,
 }
 
 impl ScreenBoundResourcesGPU {
     fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
         let render_target = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Render Target"),
+            label: Some("Main Render Target"),
             size: wgpu::Extent3d {
                 width: size.0,
                 height: size.1,
@@ -29,6 +31,21 @@ impl ScreenBoundResourcesGPU {
             format: wgpu::TextureFormat::Rgba32Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
+        #[cfg(target_arch = "wasm32")]
+        let render_target2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Main Render Target"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+        });
+
         let pixel_count = (size.0 * size.0) as usize;
         ScreenBoundResourcesGPU {
             ray_buffer: GPUBuffer::new_with_usage_count(
@@ -38,6 +55,9 @@ impl ScreenBoundResourcesGPU {
             ),
             intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
+            #[cfg(target_arch = "wasm32")]
+            render_target_view2: render_target2
+                .create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
@@ -47,6 +67,8 @@ struct BindGroups {
     intersection_pass: wgpu::BindGroup,
     shading_pass: wgpu::BindGroup,
     accumulate_pass: wgpu::BindGroup,
+    #[cfg(target_arch = "wasm32")]
+    accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
 }
 
@@ -123,6 +145,15 @@ impl BindGroups {
                 &screen_resources.ray_buffer,
                 global_uniforms,
                 &screen_resources.render_target_view,
+                &screen_resources.render_target_view2,
+                &render_target_sampler,
+            ),
+            #[cfg(target_arch = "wasm32")]
+            accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
+                device.inner(),
+                &screen_resources.ray_buffer,
+                global_uniforms,
+                &screen_resources.render_target_view2,
                 &screen_resources.render_target_view,
                 &render_target_sampler,
             ),
@@ -278,12 +309,19 @@ impl Renderer {
                 .dispatch(encoder, &bindgroups.shading_pass, dispatch_workoup_size);
         }
 
-        // Accumulation.
-        self.passes.accumulation.dispatch(
-            encoder,
-            &bindgroups.accumulate_pass,
-            dispatch_workoup_size,
-        );
+        // Accumulation
+        #[cfg(not(target_arch = "wasm32"))]
+        let accumulate_bindgroup = &bindgroups.accumulate_pass;
+        #[cfg(target_arch = "wasm32")]
+        let accumulate_bindgroup = if self.global_uniforms.seed == 1 {
+            &bindgroups.accumulate_pass
+        } else {
+            &bindgroups.accumulate_pass2
+        };
+
+        self.passes
+            .accumulation
+            .dispatch(encoder, accumulate_bindgroup, dispatch_workoup_size);
 
         if self.accumulate {
             self.global_uniforms.frame_count += 1;

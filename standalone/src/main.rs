@@ -9,7 +9,7 @@ mod async_exec;
 use async_exec::Spawner;
 
 mod event;
-use event::Event;
+use event::{Event, LoadEvent};
 
 mod commands;
 
@@ -19,6 +19,9 @@ use settings::Settings;
 mod errors;
 mod utils;
 
+mod logger;
+use logger::log;
+
 mod input_manager;
 use input_manager::InputManager;
 
@@ -26,19 +29,6 @@ mod gui;
 
 mod camera;
 use camera::CameraMoveCommand;
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! log {
-    ( $( $t:tt )* ) => {
-        println!($( $t )*);
-    }
-}
-#[cfg(target_arch = "wasm32")]
-macro_rules! log {
-    ( $( $t:tt )* ) => {
-        web_sys::console::log_1(&format!( $( $t )* ).into());
-    }
-}
 
 fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) {
     let event_loop_proxy = event_loop.create_proxy();
@@ -315,14 +305,16 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     {
         use wasm_bindgen::{prelude::*, JsCast};
         use winit::platform::web::WindowExtWebSys;
+
+        let canvas = window.canvas();
+        canvas.set_width(800);
+        canvas.set_height(800);
+
         // On wasm, append the canvas to the document body
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
-                    .ok()
-            })
+            .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
             .expect("couldn't append canvas to document body");
     }
 

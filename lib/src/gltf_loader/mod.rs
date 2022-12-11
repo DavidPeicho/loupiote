@@ -82,14 +82,12 @@ fn rgba8_image(image: image::Data) -> ImageData {
     ImageData::new(buffer, image.width, image.height)
 }
 
-pub fn load_gltf<P: AsRef<Path>>(file_path: &P, opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
-    let (doc, buffers, images) = match gltf::import(file_path) {
+pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
+    let (doc, buffers, images) = match gltf::import_slice(data) {
         Ok(tuple) => tuple,
         Err(err) => {
             return match err {
-                gltf::Error::Io(_) => Err(Error::FileNotFound(String::from(
-                    file_path.as_ref().to_str().unwrap(),
-                ))),
+                gltf::Error::Io(_) => Err(Error::FileNotFound("failed to load gltf".into())),
                 _ => Err(Error::FileNotFound(String::new())),
             };
             // if let gltf::Error::Io(_) = err {

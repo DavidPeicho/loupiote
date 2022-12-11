@@ -3,7 +3,7 @@ use egui_winit;
 use albedo_lib::{load_gltf, GLTFLoaderOptions};
 use albedo_rtx::uniforms;
 
-use crate::{errors::Error, ApplicationContext, Event, SceneGPU};
+use crate::{errors::Error, ApplicationContext, Event, LoadEvent};
 
 mod toolbar;
 mod views;
@@ -200,11 +200,14 @@ fn render_file_menu(
             context.executor.spawn_local(async move {
                 let handle = dialog.await;
                 if let Some(file) = handle {
+                    let data = file.read().await;
+                    let event = if file.file_name().ends_with("glb") {
+                        Event::Load(LoadEvent::GLTF(data))
+                    } else {
+                        Event::Load(LoadEvent::Env(data))
+                    };
                     // @todo: support wasm.
-                    #[cfg(not(target_arch = "wasm32"))]
-                    event_loop_proxy
-                        .send_event(Event::LoadFile(file.path().to_path_buf()))
-                        .ok();
+                    event_loop_proxy.send_event(event).ok();
                 }
             });
         }
