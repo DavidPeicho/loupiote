@@ -177,14 +177,12 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
     }
 
     let atlas = if images.len() > 0 {
-        println!("Creating GPU atlas...");
         let mut atlas = texture::TextureAtlas::new(opts.atlas_max_size);
         for image in images.into_iter() {
             let i = rgba8_image(image);
             // @todo: package metal / roughness / ao in single texture.
             atlas.add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
         }
-        println!("Done!");
         Some(atlas)
     } else {
         None

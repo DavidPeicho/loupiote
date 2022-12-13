@@ -9,3 +9,5 @@ pub enum Event {
     SaveScreenshot(path::PathBuf),
     Load(LoadEvent),
 }
+
+pub type EventLoopProxy = winit::event_loop::EventLoopProxy<Event>;

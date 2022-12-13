@@ -9,7 +9,7 @@ mod async_exec;
 use async_exec::Spawner;
 
 mod event;
-use event::{Event, LoadEvent};
+use event::*;
 
 mod commands;
 
@@ -69,6 +69,14 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
 
     let scene = Scene::default();
     let scene_gpu = SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
+
+    let mut gui = gui::GUI::new(&platform.device.inner(), &event_loop, &surface_config);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let adapter_info = platform.adapter.get_info();
+        gui.windows.scene_info_window.adapter_name = adapter_info.name;
+    }
+
     let mut app_context = ApplicationContext {
         platform,
         event_loop_proxy,
@@ -78,11 +86,15 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         scene_gpu,
         limits,
         renderer,
+        gui,
         settings: Settings::new(),
     };
 
-    // app_context.load_env("./assets/uffizi-large.hdr");
-    // app_context.load_file("./assets/DamagedHelmet.glb").unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        app_context.load_env_path("./assets/uffizi-large.hdr");
+        app_context.load_file_path("./assets/DamagedHelmet.glb");
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
@@ -98,37 +110,20 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
 
-    //
-    // Create GUI.
-    //
-    let mut gui = gui::GUI::new(&app_context, &event_loop, &surface_config);
-    gui.windows
-        .scene_info_window
-        .set_meshes_count(app_context.scene.meshes.len());
-    gui.windows
-        .scene_info_window
-        .set_bvh_nodes_count(app_context.scene.blas.nodes.len());
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let adapter_info = app_context.platform.adapter.get_info();
-        gui.windows.scene_info_window.adapter_name = adapter_info.name;
-    }
-
-    app_context.renderer.resize(
-        &app_context.platform.device,
-        &app_context.scene_gpu,
-        app_context.probe.as_ref(),
-        (
-            app_context.platform.size.width.max(1),
-            app_context.platform.size.height.max(1),
-        ),
-    );
+    // app_context.renderer.resize(
+    //     &app_context.platform.device,
+    //     &app_context.scene_gpu,
+    //     app_context.probe.as_ref(),
+    //     (
+    //         app_context.platform.size.width.max(1),
+    //         app_context.platform.size.height.max(1),
+    //     ),
+    // );
 
     let input_manager = InputManager::new();
     event_loop.run(move |event, _, control_flow| {
-        gui.handle_event(&event);
-        let event_captured = gui.captured();
+        app_context.gui.handle_event(&event);
+        let event_captured = app_context.gui.captured();
         match event {
             winit::event::Event::UserEvent(event) => app_context.event(event),
             winit::event::Event::WindowEvent {
@@ -140,18 +135,12 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
                     },
                 ..
             } => {
-                let new_size = (size.width.max(1), size.height.max(1));
-                surface_config.width = new_size.0;
-                surface_config.height = new_size.1;
-                app_context.renderer.resize(
-                    &app_context.platform.device,
-                    &app_context.scene_gpu,
-                    app_context.probe.as_ref(),
-                    new_size,
-                );
-                println!("{:?}, {:?}", new_size.0, new_size.1);
+                let width = size.width.max(1);
+                let height = size.height.max(1);
+                surface_config.width = width;
+                surface_config.height = height;
                 surface.configure(app_context.platform.device.inner(), &surface_config);
-                gui.resize(&app_context);
+                app_context.resize(width, height);
             }
 
             winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -271,12 +260,21 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
                     },
                 );
                 // Render GUI.
-                gui.windows
+                app_context
+                    .gui
+                    .windows
                     .performance_info_window
                     .set_global_performance(delta);
 
-                let gui_cmd_buffers =
-                    gui.render(&mut app_context, &surface_config, &mut encoder_gui, &view);
+                let gui_cmd_buffers = app_context.gui.render(
+                    &mut app_context.settings,
+                    &app_context.platform,
+                    &app_context.executor,
+                    &app_context.event_loop_proxy,
+                    &surface_config,
+                    &mut encoder_gui,
+                    &view,
+                );
 
                 app_context.platform.queue.submit(
                     std::iter::once(encoder.finish()).chain(
@@ -309,6 +307,8 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
         let canvas = window.canvas();
         canvas.set_width(800);
         canvas.set_height(800);
+        canvas.style().set_property("width", "800px").unwrap();
+        canvas.style().set_property("height", "800px").unwrap();
 
         // On wasm, append the canvas to the document body
         web_sys::window()
@@ -372,7 +372,6 @@ async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
 }
 
 fn main() {
-    println!("Main");
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::{prelude::*, JsCast};
@@ -381,12 +380,8 @@ fn main() {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
         wasm_bindgen_futures::spawn_local(async move {
-            println!("Spawn Local");
             let setup = setup().await;
-            println!("Post Setup");
             let start_closure = Closure::once_into_js(move || run(setup));
-
-            println!("Before start closure");
 
             // make sure to handle JS exceptions thrown inside start.
             // Otherwise wasm_bindgen_futures Queue would break and never handle any tasks again.

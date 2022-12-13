@@ -129,11 +129,6 @@ impl TextureAtlasGPU {
             atlas_extent,
         );
 
-        println!("Texture Atlas: {{");
-        println!("\tTextures count = {}", atlas.textures().len());
-        println!("\tLayers count = {}", atlas.layer_count());
-        println!("}}");
-
         let info_extent = wgpu::Extent3d {
             width: atlas.textures().len() as u32,
             height: 1,

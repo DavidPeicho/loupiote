@@ -1,8 +1,11 @@
 use std::path;
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
+use egui::epaint::tessellator::Path;
 
-use crate::{commands, errors::Error, event::LoadEvent, logger::log, Event, Settings, Spawner};
+use crate::{
+    commands, errors::Error, event::LoadEvent, gui::GUI, logger::log, Event, Settings, Spawner,
+};
 
 pub struct Plaftorm {
     pub instance: wgpu::Instance,
@@ -16,7 +19,7 @@ pub struct Plaftorm {
 
 pub struct ApplicationContext {
     pub platform: Plaftorm,
-    pub event_loop_proxy: winit::event_loop::EventLoopProxy<Event>,
+    pub event_loop_proxy: crate::EventLoopProxy,
     #[cfg(not(target_arch = "wasm32"))]
     pub executor: Spawner<'static>,
     #[cfg(target_arch = "wasm32")]
@@ -27,6 +30,7 @@ pub struct ApplicationContext {
     pub probe: Option<ProbeGPU>,
     pub limits: wgpu::Limits,
     pub settings: Settings,
+    pub gui: GUI,
 }
 
 impl ApplicationContext {
@@ -47,6 +51,23 @@ impl ApplicationContext {
                 LoadEvent::Env(data) => self.load_env(&data[..]),
             },
         }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        log!("Resize: {:?}, {:?}", width, height);
+        let dpi = self.platform.window.scale_factor() as f32;
+        self.renderer.resize(
+            &self.platform.device,
+            &self.scene_gpu,
+            self.probe.as_ref(),
+            (width, height),
+        );
+        self.gui.resize(dpi);
+    }
+
+    pub fn load_env_path<P: AsRef<path::Path>>(&mut self, path: P) {
+        let bytes = std::fs::read(path).unwrap();
+        self.load_env(&bytes[..]);
     }
 
     pub fn load_env(&mut self, data: &[u8]) {
@@ -71,6 +92,11 @@ impl ApplicationContext {
             .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
     }
 
+    pub fn load_file_path<P: AsRef<path::Path>>(&mut self, path: P) {
+        let bytes = std::fs::read(path).unwrap();
+        self.load_file(&bytes[..]);
+    }
+
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
         log!("Loading GLB...");
         let scene = load_gltf(
@@ -79,9 +105,30 @@ impl ApplicationContext {
                 atlas_max_size: self.limits.max_texture_dimension_1d,
             },
         )?;
-        self.scene_gpu =
-            SceneGPU::new_from_scene(&scene, self.platform.device.inner(), &self.platform.queue);
         self.scene = scene;
+        self.scene_gpu = SceneGPU::new_from_scene(
+            &self.scene,
+            self.platform.device.inner(),
+            &self.platform.queue,
+        );
+
+        // Update GUI information.
+        self.gui
+            .windows
+            .scene_info_window
+            .set_meshes_count(self.scene.meshes.len());
+        self.gui
+            .windows
+            .scene_info_window
+            .set_bvh_nodes_count(self.scene.blas.nodes.len());
+
+        if let Some(atlas) = &self.scene.atlas {
+            log!("Texture Atlas: {{");
+            log!("\tTextures count = {}", atlas.textures().len());
+            log!("\tLayers count = {}", atlas.layer_count());
+            log!("}}");
+        }
+
         self.renderer
             .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
         Ok(())

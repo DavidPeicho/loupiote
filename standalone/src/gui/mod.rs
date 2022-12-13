@@ -1,9 +1,6 @@
 use egui_winit;
 
-use albedo_lib::{load_gltf, GLTFLoaderOptions};
-use albedo_rtx::uniforms;
-
-use crate::{errors::Error, ApplicationContext, Event, LoadEvent};
+use crate::{errors::Error, Event, LoadEvent};
 
 mod toolbar;
 mod views;
@@ -25,19 +22,14 @@ pub struct GUI {
 
 impl GUI {
     pub fn new(
-        context: &ApplicationContext,
+        device: &wgpu::Device,
         event_loop: &winit::event_loop::EventLoop<Event>,
         surface_config: &wgpu::SurfaceConfiguration,
     ) -> Self {
         GUI {
             platform: egui_winit::State::new(event_loop),
             context: Default::default(),
-            renderer: egui_wgpu::Renderer::new(
-                context.platform.device.inner(),
-                surface_config.format,
-                None,
-                1,
-            ),
+            renderer: egui_wgpu::Renderer::new(device, surface_config.format, None, 1),
             captured: false,
             error_window: None,
             windows: Windows {
@@ -47,9 +39,8 @@ impl GUI {
         }
     }
 
-    pub fn resize(&mut self, context: &ApplicationContext) {
-        self.platform
-            .set_pixels_per_point(context.platform.window.scale_factor() as f32);
+    pub fn resize(&mut self, dpi: f32) {
+        self.platform.set_pixels_per_point(dpi);
     }
 
     pub fn handle_event<T>(&mut self, winit_event: &winit::event::Event<T>) -> bool {
@@ -69,29 +60,37 @@ impl GUI {
 
     pub fn render(
         &mut self,
-        context: &mut crate::ApplicationContext,
+        settings: &mut crate::Settings,
+        platform: &crate::Plaftorm,
+        executor: &crate::Spawner,
+        event_loop_proxy: &crate::EventLoopProxy,
         surface_config: &wgpu::SurfaceConfiguration,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
     ) -> Vec<wgpu::CommandBuffer> {
         let windows = &mut self.windows;
-        let raw_inputs = self.platform.take_egui_input(&context.platform.window);
+        let raw_inputs = self.platform.take_egui_input(&platform.window);
         let egui::FullOutput {
             shapes,
             textures_delta,
             platform_output,
             ..
         } = self.context.run(raw_inputs, |egui_ctx| {
-            render_menu_bar(egui_ctx, windows, context).unwrap();
+            render_menu_bar(
+                egui_ctx,
+                windows,
+                settings,
+                platform,
+                executor,
+                event_loop_proxy,
+            )
+            .unwrap();
             windows.scene_info_window.render(egui_ctx);
             windows.performance_info_window.render(egui_ctx);
         });
 
-        self.platform.handle_platform_output(
-            &context.platform.window,
-            &self.context,
-            platform_output,
-        );
+        self.platform
+            .handle_platform_output(&platform.window, &self.context, platform_output);
 
         // self.error_window = Some(ErrorWindow::new(error.into()));
         // if let Some(error_window) = &mut self.error_window {
@@ -101,7 +100,6 @@ impl GUI {
         //     }
         // }
 
-        let platform = &context.platform;
         let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: platform.window.scale_factor() as f32,
@@ -159,14 +157,17 @@ impl GUI {
 fn render_menu_bar(
     context: &egui::Context,
     windows: &mut Windows,
-    app_context: &mut crate::ApplicationContext,
+    settings: &mut crate::Settings,
+    platform: &crate::Plaftorm,
+    executor: &crate::Spawner,
+    event_loop_proxy: &crate::EventLoopProxy,
 ) -> Result<(), Error> {
     use egui::*;
     let mut result = Ok(());
     TopBottomPanel::top("menu_bar").show(context, |ui| {
         trace!(ui);
         menu::bar(ui, |ui| {
-            let menu_res = render_file_menu(ui, app_context);
+            let menu_res = render_file_menu(ui, platform, executor, event_loop_proxy);
             ui.menu_button("Windows", |ui| {
                 if ui.button("Scene Information").clicked() {
                     windows.scene_info_window.open = true;
@@ -177,8 +178,8 @@ fn render_menu_bar(
                     ui.ctx().memory().reset_areas();
                 }
             });
-            toolbar::render_toolbar_gui(ui, app_context);
-            let screenshot_res = render_screenshot_menu(ui, app_context);
+            toolbar::render_toolbar_gui(ui, settings);
+            let screenshot_res = render_screenshot_menu(ui, platform, executor, event_loop_proxy);
         });
     });
     result
@@ -186,9 +187,10 @@ fn render_menu_bar(
 
 fn render_file_menu(
     ui: &mut egui::Ui,
-    context: &mut crate::ApplicationContext,
+    platform: &crate::Plaftorm,
+    executor: &crate::Spawner,
+    event_loop_proxy: &crate::EventLoopProxy,
 ) -> Result<(), Error> {
-    let platform = &context.platform;
     ui.menu_button("File", |ui| {
         if ui.button("Load").clicked() {
             ui.ctx().memory().reset_areas();
@@ -196,8 +198,8 @@ fn render_file_menu(
             let dialog = rfd::AsyncFileDialog::new()
                 .set_parent(&platform.window)
                 .pick_file();
-            let event_loop_proxy = context.event_loop_proxy.clone();
-            context.executor.spawn_local(async move {
+            let event_loop_proxy = event_loop_proxy.clone();
+            executor.spawn_local(async move {
                 let handle = dialog.await;
                 if let Some(file) = handle {
                     let data = file.read().await;
@@ -217,9 +219,10 @@ fn render_file_menu(
 
 fn render_screenshot_menu(
     ui: &mut egui::Ui,
-    context: &mut crate::ApplicationContext,
+    platform: &crate::Plaftorm,
+    executor: &crate::Spawner,
+    event_loop_proxy: &crate::EventLoopProxy,
 ) -> Result<(), Error> {
-    let platform = &context.platform;
     // @todo: support wasm.
     #[cfg(not(target_arch = "wasm32"))]
     if ui.button("📷").clicked() {
@@ -227,8 +230,8 @@ fn render_screenshot_menu(
             .add_filter("image", &["png", "jpg"])
             .set_parent(&platform.window)
             .save_file();
-        let event_loop_proxy = context.event_loop_proxy.clone();
-        context.executor.spawn_local(async move {
+        let event_loop_proxy = event_loop_proxy.clone();
+        executor.spawn_local(async move {
             let handle = dialog.await;
             if let Some(file) = handle {
                 // @todo: support wasm.

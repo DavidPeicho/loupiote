@@ -1,9 +1,9 @@
-use crate::errors::Error;
+use crate::{errors::Error, settings};
 
 pub fn render_settings_toolbar_gui(
     ui: &mut egui::Ui,
-    app_context: &mut crate::ApplicationContext,
+    settings: &mut crate::Settings,
 ) -> Result<(), Error> {
-    ui.checkbox(&mut app_context.settings.accumulate, "Accumulate");
+    ui.checkbox(&mut settings.accumulate, "Accumulate");
     Ok({})
 }
