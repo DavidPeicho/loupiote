@@ -70,6 +70,8 @@ struct BindGroups {
     #[cfg(target_arch = "wasm32")]
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
+    #[cfg(target_arch = "wasm32")]
+    blit_pass2: wgpu::BindGroup,
 }
 
 impl BindGroups {
@@ -160,6 +162,13 @@ impl BindGroups {
             blit_pass: blit_pass.create_frame_bind_groups(
                 device.inner(),
                 &screen_resources.render_target_view,
+                &render_target_sampler,
+                global_uniforms,
+            ),
+            #[cfg(target_arch = "wasm32")]
+            blit_pass2: blit_pass.create_frame_bind_groups(
+                device.inner(),
+                &screen_resources.render_target_view2,
                 &render_target_sampler,
                 global_uniforms,
             ),
@@ -313,7 +322,7 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         let accumulate_bindgroup = &bindgroups.accumulate_pass;
         #[cfg(target_arch = "wasm32")]
-        let accumulate_bindgroup = if self.global_uniforms.seed == 1 {
+        let accumulate_bindgroup = if self.global_uniforms.seed % 2 == 0 {
             &bindgroups.accumulate_pass
         } else {
             &bindgroups.accumulate_pass2
@@ -330,13 +339,21 @@ impl Renderer {
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         let bindgroups = if self.accumulate {
-            &self.fullscreen_bindgroups
+            self.fullscreen_bindgroups.as_ref().unwrap()
         } else {
-            &self.downsample_bindgroups
+            self.downsample_bindgroups.as_ref().unwrap()
         };
-        self.passes
-            .blit
-            .draw(encoder, &view, &bindgroups.as_ref().unwrap().blit_pass);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let bindgroup = &bindgroups.blit_pass;
+        #[cfg(target_arch = "wasm32")]
+        let bindgroup = if self.global_uniforms.seed % 2 == 0 {
+            &bindgroups.blit_pass
+        } else {
+            &bindgroups.blit_pass2
+        };
+
+        self.passes.blit.draw(encoder, &view, bindgroup);
     }
 
     pub fn reset_accumulation(&mut self) {

@@ -60,6 +60,8 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         glam::Vec3::new(0.0, 0.0, -1.0),
     );
     camera_controller.rotation_enabled = false;
+    camera_controller.move_speed_factor = 0.01;
+    camera_controller.rot_speed_factor = glam::Vec2::new(0.01, 0.01);
 
     let renderer = Renderer::new(
         &platform.device,
@@ -89,12 +91,16 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
         gui,
         settings: Settings::new(),
     };
-
     #[cfg(not(target_arch = "wasm32"))]
     {
         app_context.load_env_path("./assets/uffizi-large.hdr");
         app_context.load_file_path("./assets/DamagedHelmet.glb");
     }
+
+    app_context.resize(
+        app_context.platform.size.width.max(1),
+        app_context.platform.size.height.max(1),
+    );
 
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
@@ -109,16 +115,6 @@ fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) 
 
     // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
-
-    // app_context.renderer.resize(
-    //     &app_context.platform.device,
-    //     &app_context.scene_gpu,
-    //     app_context.probe.as_ref(),
-    //     (
-    //         app_context.platform.size.width.max(1),
-    //         app_context.platform.size.height.max(1),
-    //     ),
-    // );
 
     let input_manager = InputManager::new();
     event_loop.run(move |event, _, control_flow| {

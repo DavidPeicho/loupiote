@@ -54,7 +54,6 @@ impl ApplicationContext {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        log!("Resize: {:?}, {:?}", width, height);
         let dpi = self.platform.window.scale_factor() as f32;
         self.renderer.resize(
             &self.platform.device,
@@ -63,6 +62,7 @@ impl ApplicationContext {
             (width, height),
         );
         self.gui.resize(dpi);
+        log!("Resize: {:?}, {:?}, {:?}", width, height, dpi);
     }
 
     pub fn load_env_path<P: AsRef<path::Path>>(&mut self, path: P) {
@@ -71,7 +71,6 @@ impl ApplicationContext {
     }
 
     pub fn load_env(&mut self, data: &[u8]) {
-        log!("Loading env...");
         let decoder = image::codecs::hdr::HdrDecoder::new(data).unwrap();
         let metadata = decoder.metadata();
         let image_data = decoder.read_image_native().unwrap();
@@ -90,6 +89,11 @@ impl ApplicationContext {
         ));
         self.renderer
             .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
+
+        log!("Environment: {{");
+        log!("\tWidth = {}", metadata.width);
+        log!("\tHeight = {}", metadata.height);
+        log!("}}");
     }
 
     pub fn load_file_path<P: AsRef<path::Path>>(&mut self, path: P) {
