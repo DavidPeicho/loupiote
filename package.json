@@ -1,0 +1,14 @@
+{
+  "name": "loupiote",
+  "version": "1.0.0",
+  "description": "Standalone Pathtracer based on the Albedo library",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "build:standalone": "wasm-pack build standalone --out-dir dist/ --target web",
+    "start:standalone": "yarn build:standalone -- --dev && serve standalone -l 8080"
+  },
+  "devDependencies": {
+    "serve": "^14.1.2"
+  }
+}

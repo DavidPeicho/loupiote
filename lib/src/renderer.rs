@@ -322,7 +322,7 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         let accumulate_bindgroup = &bindgroups.accumulate_pass;
         #[cfg(target_arch = "wasm32")]
-        let accumulate_bindgroup = if self.global_uniforms.seed % 2 == 0 {
+        let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
             &bindgroups.accumulate_pass
         } else {
             &bindgroups.accumulate_pass2
@@ -347,7 +347,7 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         let bindgroup = &bindgroups.blit_pass;
         #[cfg(target_arch = "wasm32")]
-        let bindgroup = if self.global_uniforms.seed % 2 == 0 {
+        let bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
             &bindgroups.blit_pass
         } else {
             &bindgroups.blit_pass2

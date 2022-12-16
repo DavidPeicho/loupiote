@@ -3,7 +3,6 @@ resolver = "2"
 members = [
   "standalone",
   "lib",
-  "run-wasm"
 ]
 default-members = ["standalone"]
 

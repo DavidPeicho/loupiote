@@ -5,6 +5,9 @@ authors = ["David Peicho <david.peicho@gmail.com>"]
 edition = "2018"
 resolver = "2"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 bytemuck = "1.4.1"
 hotwatch = "0.4.6"

@@ -1,7 +1,6 @@
 use std::path;
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
-use egui::epaint::tessellator::Path;
 
 use crate::{
     commands, errors::Error, event::LoadEvent, gui::GUI, logger::log, Event, Settings, Spawner,
@@ -14,7 +13,6 @@ pub struct Plaftorm {
     pub window: winit::window::Window,
     pub surface: wgpu::Surface,
     pub queue: wgpu::Queue,
-    pub size: winit::dpi::PhysicalSize<u32>,
 }
 
 pub struct ApplicationContext {
@@ -153,5 +151,13 @@ impl ApplicationContext {
             // @todo: handle error.
             output.save(path).unwrap();
         }
+    }
+
+    pub fn width(&self) -> u32 {
+        self.renderer.get_size().0
+    }
+
+    pub fn height(&self) -> u32 {
+        self.renderer.get_size().0
     }
 }

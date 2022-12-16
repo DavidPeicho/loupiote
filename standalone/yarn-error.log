@@ -1,0 +1,37 @@
+Arguments: 
+  /opt/homebrew/Cellar/node/18.10.0/bin/node /opt/homebrew/bin/yarn add serve --dev
+
+PATH: 
+  /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Apple/usr/bin:/Users/davidpeicho/.cargo/bin:/Users/davidpeicho/Tools/glslc/bin
+
+Yarn version: 
+  1.22.19
+
+Node version: 
+  18.10.0
+
+Platform: 
+  darwin arm64
+
+Trace: 
+  Error: getaddrinfo ENOTFOUND registry.yarnpkg.com
+      at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:107:26)
+
+npm manifest: 
+  {
+    "name": "loupiote",
+    "version": "1.0.0",
+    "description": "Standalone Pathtracer based on the Albedo library",
+    "main": "index.js",
+    "license": "MIT",
+    "scripts": {
+      "build": "cargo build --target wasm32-unknown-unknown",
+      "start": "cargo run "
+    }
+  }
+
+yarn manifest: 
+  No manifest
+
+Lockfile: 
+  No lockfile
