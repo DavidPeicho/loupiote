@@ -1,7 +1,7 @@
 use albedo_backend::{GPUBuffer, UniformBuffer};
 
 use albedo_rtx::passes;
-use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray};
+use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
 
 use crate::device::Device;
 use crate::errors::Error;
@@ -46,7 +46,7 @@ impl ScreenBoundResourcesGPU {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
 
-        let pixel_count = (size.0 * size.0) as usize;
+        let pixel_count = (size.0 * size.1) as usize;
         ScreenBoundResourcesGPU {
             ray_buffer: GPUBuffer::new_with_usage_count(
                 &device,
@@ -204,6 +204,17 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    pub fn max_ssbo_element_in_bytes() -> u32 {
+        [
+            Ray::size_in_bytes(),
+            Intersection::size_in_bytes(),
+            Camera::size_in_bytes(),
+            PerDrawUniforms::size_in_bytes(),
+        ]
+        .iter()
+        .fold(0, |max, &val| std::cmp::max(max, val))
+    }
+
     pub fn new(device: &Device, size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
         let downsample_factor = 0.25;
         let downsampled_size = (

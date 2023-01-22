@@ -26,7 +26,6 @@ pub struct ApplicationContext {
     pub scene: Scene,
     pub scene_gpu: SceneGPU,
     pub probe: Option<ProbeGPU>,
-    pub limits: wgpu::Limits,
     pub settings: Settings,
     pub gui: GUI,
 }
@@ -51,16 +50,40 @@ impl ApplicationContext {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        let dpi = self.platform.window.scale_factor() as f32;
+    pub fn resize(&mut self, width_target: u32, height_target: u32) {
+        let limits = &self.platform.device.inner().limits();
+        let max_bytes_per_pixel = Renderer::max_ssbo_element_in_bytes();
+        let max_pixels_count = limits.max_storage_buffer_binding_size / max_bytes_per_pixel;
+
+        let pixels_target_count = width_target * height_target;
+        let (width, height) = if max_pixels_count < pixels_target_count {
+            let ratio = (max_pixels_count as f32 / pixels_target_count as f32);
+            (
+                (width_target as f32 * ratio) as u32,
+                (height_target as f32 * ratio) as u32,
+            )
+        } else {
+            (width_target, height_target)
+        };
+
         self.renderer.resize(
             &self.platform.device,
             &self.scene_gpu,
             self.probe.as_ref(),
             (width, height),
         );
+
+        let dpi = self.platform.window.scale_factor() as f32;
         self.gui.resize(dpi);
-        log!("Resize: {:?}, {:?}, {:?}", width, height, dpi);
+
+        log!(
+            "Resize: {{\n\tDpi={:?}\n\tSurface Size=({:?}, {:?})\n\tTarget Size=({:?}, {:?})\n}}",
+            dpi,
+            width_target,
+            height_target,
+            width,
+            height
+        );
     }
 
     pub fn load_env_path<P: AsRef<path::Path>>(&mut self, path: P) {
@@ -101,10 +124,11 @@ impl ApplicationContext {
 
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
         log!("Loading GLB...");
+        let limits = &self.platform.device.inner().limits();
         let scene = load_gltf(
             data,
             &GLTFLoaderOptions {
-                atlas_max_size: self.limits.max_texture_dimension_1d,
+                atlas_max_size: limits.max_texture_dimension_1d,
             },
         )?;
         self.scene = scene;

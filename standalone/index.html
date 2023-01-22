@@ -12,20 +12,8 @@
 <body>
     <script type="module">
         import init from './dist/standalone.js';
-
         async function main() {
           await init();
-
-          const canvas = document.getElementsByTagName('canvas')[0];
-          const observer = new ResizeObserver(entries => {
-            for (const entry of entries) {
-              if(entry.target === canvas) {
-                const rect = entry.contentRect;
-                console.log(rect);
-              }
-            }
-          });
-          observer.observe(canvas, {  });
         }
         window.addEventListener("load", main);
     </script>

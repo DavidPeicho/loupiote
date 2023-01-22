@@ -1,6 +1,6 @@
 use egui_winit;
 
-use crate::{errors::Error, Event, LoadEvent};
+use crate::{errors::Error, logger::log, Event, LoadEvent};
 
 mod toolbar;
 mod views;
@@ -104,6 +104,7 @@ impl GUI {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: platform.window.scale_factor() as f32,
         };
+
         let paint_jobs = self.context.tessellate(shapes);
 
         let user_cmd_bufs = {

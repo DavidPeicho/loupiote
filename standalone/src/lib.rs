@@ -58,8 +58,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     let surface = unsafe { platform.instance.create_surface(&platform.window) };
     surface.configure(&platform.device.inner(), &surface_config);
 
-    let limits = platform.device.inner().limits();
-
     let mut camera_controller = camera::CameraController::from_origin_dir(
         glam::Vec3::new(0.0, 0.0, 5.0),
         glam::Vec3::new(0.0, 0.0, -1.0),
@@ -89,12 +87,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         probe: None,
         scene,
         scene_gpu,
-        limits,
         renderer,
         gui,
         settings: Settings::new(),
     };
-    app_context.resize(init_size.width, init_size.height);
     surface_config.width = init_size.width;
     surface_config.height = init_size.height;
     surface.configure(app_context.platform.device.inner(), &surface_config);
@@ -304,10 +300,6 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
         use winit::platform::web::WindowExtWebSys;
 
         let canvas = window.canvas();
-        canvas.set_width(800);
-        canvas.set_height(800);
-        canvas.style().set_property("width", "800px").unwrap();
-        canvas.style().set_property("height", "800px").unwrap();
 
         // On wasm, append the canvas to the document body
         web_sys::window()
@@ -335,7 +327,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
-        max_storage_buffer_binding_size: 256 * 1024 * 1024,
+        // max_storage_buffer_binding_size: 256 * 1024 * 1024,
         ..wgpu::Limits::default()
     };
     let trace_dir = std::env::var("WGPU_TRACE");
