@@ -172,11 +172,11 @@ fn render_menu_bar(
             ui.menu_button("Windows", |ui| {
                 if ui.button("Scene Information").clicked() {
                     windows.scene_info_window.open = true;
-                    ui.ctx().memory().reset_areas();
+                    ui.close_menu();
                 }
                 if ui.button("Performance Information").clicked() {
                     windows.performance_info_window.open = true;
-                    ui.ctx().memory().reset_areas();
+                    ui.close_menu();
                 }
             });
             toolbar::render_toolbar_gui(ui, settings);
@@ -194,7 +194,7 @@ fn render_file_menu(
 ) -> Result<(), Error> {
     ui.menu_button("File", |ui| {
         if ui.button("Load").clicked() {
-            ui.ctx().memory().reset_areas();
+            ui.close_menu();
 
             let dialog = rfd::AsyncFileDialog::new()
                 .set_parent(&platform.window)

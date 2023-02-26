@@ -42,7 +42,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     let init_size = platform.window.inner_size();
 
-    let swapchain_format = platform.surface.get_supported_formats(&platform.adapter)[0];
+    let caps = platform.surface.get_capabilities(&platform.adapter);
+    let swapchain_format = caps.formats[0];
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
@@ -53,9 +54,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         present_mode: wgpu::PresentMode::Fifo,
         #[cfg(not(target_arch = "wasm32"))]
         present_mode: wgpu::PresentMode::Immediate,
+        view_formats: vec![],
     };
 
-    let surface = unsafe { platform.instance.create_surface(&platform.window) };
+    let surface = unsafe { platform.instance.create_surface(&platform.window) }.unwrap();
     surface.configure(&platform.device.inner(), &surface_config);
 
     let mut camera_controller = camera::CameraController::from_origin_dir(
@@ -309,8 +311,12 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
             .expect("couldn't append canvas to document body");
     }
 
-    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-    let surface = unsafe { instance.create_surface(&window) };
+    let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        dx12_shader_compiler,
+    });
+    let surface = unsafe { instance.create_surface(&window) }.unwrap();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,

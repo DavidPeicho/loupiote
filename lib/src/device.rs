@@ -26,6 +26,7 @@ impl DefaultTextures {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
 
         let non_filterable_1d = device.create_texture(&wgpu::TextureDescriptor {
@@ -40,6 +41,7 @@ impl DefaultTextures {
             dimension: wgpu::TextureDimension::D1,
             format: wgpu::TextureFormat::R8Uint,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
         Self {
             filterable_2d: filterable_2d.create_view(&wgpu::TextureViewDescriptor {

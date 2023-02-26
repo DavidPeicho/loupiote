@@ -108,6 +108,7 @@ impl TextureAtlasGPU {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -142,6 +143,7 @@ impl TextureAtlasGPU {
             dimension: wgpu::TextureDimension::D1,
             format: wgpu::TextureFormat::Rgba32Uint,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
         let info_data_bytes = atlas.textures().len() * std::mem::size_of::<TextureAtlasGPU>();
         let info_data_raw = unsafe {
@@ -222,6 +224,7 @@ impl ProbeGPU {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
 
         let probe_texture_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());

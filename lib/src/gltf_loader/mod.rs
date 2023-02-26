@@ -53,12 +53,16 @@ fn rgba8_image(image: image::Data) -> ImageData {
     let (components, _) = match image.format {
         image::Format::R8 => (1, 1),
         image::Format::R8G8 => (2, 1),
-        image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
-        image::Format::R8G8B8A8 | image::Format::B8G8R8A8 => (4, 1),
+        // image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
+        image::Format::R8G8B8 => (3, 1),
+        // image::Format::R8G8B8A8 | image::Format::B8G8R8A8 => (4, 1),
+        image::Format::R8G8B8A8 => (4, 1),
         image::Format::R16 => (1, 2),
         image::Format::R16G16 => (2, 2),
         image::Format::R16G16B16 => (3, 2),
         image::Format::R16G16B16A16 => (4, 2),
+        image::Format::R32G32B32FLOAT => (3, 4),
+        image::Format::R32G32B32A32FLOAT => (4, 4),
     };
 
     // @todo: re-order channels if the format was BGR.

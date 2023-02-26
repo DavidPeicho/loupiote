@@ -76,13 +76,18 @@ impl ApplicationContext {
         let dpi = self.platform.window.scale_factor() as f32;
         self.gui.resize(dpi);
 
+        let renderer_size = self.renderer.get_size();
+        let renderer_down_size = self.renderer.get_downsampled_size();
+
         log!(
-            "Resize: {{\n\tDpi={:?}\n\tSurface Size=({:?}, {:?})\n\tTarget Size=({:?}, {:?})\n}}",
+            "Resize: {{\n\tDpi={:?}\n\tSurface Size=({:?}, {:?})\n\tTarget Size=({:?}, {:?})\n\tMoving Size({:?}, {:?})\n}}",
             dpi,
             width_target,
             height_target,
-            width,
-            height
+            renderer_size.0,
+            renderer_size.1,
+            renderer_down_size.0,
+            renderer_down_size.1
         );
     }
 
