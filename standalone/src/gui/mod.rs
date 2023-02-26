@@ -1,6 +1,6 @@
 use egui_winit;
 
-use crate::{errors::Error, logger::log, Event, LoadEvent};
+use crate::{Event, LoadEvent};
 
 mod toolbar;
 mod views;
@@ -37,6 +37,10 @@ impl GUI {
                 performance_info_window: windows::PerformanceInfoWindow::new(),
             },
         }
+    }
+
+    pub fn set_error<S: Into<String>>(&mut self, message: S) {
+        self.error_window = Some(windows::ErrorWindow::new(message.into()));
     }
 
     pub fn resize(&mut self, dpi: f32) {
@@ -83,8 +87,7 @@ impl GUI {
                 platform,
                 executor,
                 event_loop_proxy,
-            )
-            .unwrap();
+            );
             windows.scene_info_window.render(egui_ctx);
             windows.performance_info_window.render(egui_ctx);
         });
@@ -92,13 +95,12 @@ impl GUI {
         self.platform
             .handle_platform_output(&platform.window, &self.context, platform_output);
 
-        // self.error_window = Some(ErrorWindow::new(error.into()));
-        // if let Some(error_window) = &mut self.error_window {
-        //     error_window.render(&self.context);
-        //     if !error_window.open {
-        //         self.error_window = None;
-        //     }
-        // }
+        if let Some(error_window) = &mut self.error_window {
+            error_window.render(&self.context);
+            if !error_window.open {
+                self.error_window = None;
+            }
+        }
 
         let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
@@ -162,13 +164,12 @@ fn render_menu_bar(
     platform: &crate::Plaftorm,
     executor: &crate::Spawner,
     event_loop_proxy: &crate::EventLoopProxy,
-) -> Result<(), Error> {
+) {
     use egui::*;
-    let mut result = Ok(());
     TopBottomPanel::top("menu_bar").show(context, |ui| {
         trace!(ui);
         menu::bar(ui, |ui| {
-            let menu_res = render_file_menu(ui, platform, executor, event_loop_proxy);
+            render_file_menu(ui, platform, executor, event_loop_proxy);
             ui.menu_button("Windows", |ui| {
                 if ui.button("Scene Information").clicked() {
                     windows.scene_info_window.open = true;
@@ -180,10 +181,9 @@ fn render_menu_bar(
                 }
             });
             toolbar::render_toolbar_gui(ui, settings);
-            let screenshot_res = render_screenshot_menu(ui, platform, executor, event_loop_proxy);
+            render_screenshot_menu(ui, platform, executor, event_loop_proxy);
         });
     });
-    result
 }
 
 fn render_file_menu(
@@ -191,7 +191,7 @@ fn render_file_menu(
     platform: &crate::Plaftorm,
     executor: &crate::Spawner,
     event_loop_proxy: &crate::EventLoopProxy,
-) -> Result<(), Error> {
+) {
     ui.menu_button("File", |ui| {
         if ui.button("Load").clicked() {
             ui.close_menu();
@@ -215,7 +215,6 @@ fn render_file_menu(
             });
         }
     });
-    Ok(())
 }
 
 fn render_screenshot_menu(
@@ -223,7 +222,7 @@ fn render_screenshot_menu(
     platform: &crate::Plaftorm,
     executor: &crate::Spawner,
     event_loop_proxy: &crate::EventLoopProxy,
-) -> Result<(), Error> {
+) {
     // @todo: support wasm.
     #[cfg(not(target_arch = "wasm32"))]
     if ui.button("📷").clicked() {
@@ -243,5 +242,4 @@ fn render_screenshot_menu(
             }
         });
     }
-    Ok(())
 }

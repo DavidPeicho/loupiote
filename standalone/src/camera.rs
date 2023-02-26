@@ -63,10 +63,6 @@ impl CameraController {
         self.commands.remove(enumflags2::BitFlags::from(cmd));
     }
 
-    pub fn is_command_set(&self, cmd: CameraMoveCommand) -> bool {
-        self.commands.contains(cmd)
-    }
-
     pub fn update(&mut self, delta: f32) -> (glam::Vec3, glam::Vec3) {
         let mut right = self.direction.cross(glam::Vec3::Y).normalize();
         let mut up = right.cross(self.direction).normalize();

@@ -23,7 +23,7 @@ impl PerformanceInfoWindow {
     pub fn render(&mut self, context: &egui::Context) {
         let delta = &self.delta;
         let fps = &self.fps;
-        let mut window = egui::Window::new("Performance Info")
+        egui::Window::new("Performance Info")
             .resizable(true)
             .open(&mut self.open)
             .show(context, |ui| {

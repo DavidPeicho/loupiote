@@ -83,8 +83,6 @@ impl BindGroups {
         probe: Option<&ProbeGPU>,
         global_uniforms: &UniformBuffer<PerDrawUniforms>,
         camera_uniforms: &UniformBuffer<Camera>,
-        render_target_sampler: &wgpu::Sampler,
-        filtered_sampler_2d: &wgpu::Sampler,
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPass,
@@ -134,6 +132,7 @@ impl BindGroups {
                 atlas_view,
                 global_uniforms,
                 device.sampler_nearest(),
+                device.sampler_linear(),
             ),
             #[cfg(not(feature = "accumulate_read_write"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
@@ -158,19 +157,19 @@ impl BindGroups {
                 global_uniforms,
                 &screen_resources.render_target_view2,
                 &screen_resources.render_target_view,
-                &render_target_sampler,
+                &device.sampler_nearest(),
             ),
             blit_pass: blit_pass.create_frame_bind_groups(
                 device.inner(),
                 &screen_resources.render_target_view,
-                &render_target_sampler,
+                &device.sampler_nearest(),
                 global_uniforms,
             ),
             #[cfg(feature = "accumulate_read_write")]
             blit_pass2: blit_pass.create_frame_bind_groups(
                 device.inner(),
                 &screen_resources.render_target_view2,
-                &render_target_sampler,
+                &device.sampler_nearest(),
                 global_uniforms,
             ),
         }
@@ -397,8 +396,6 @@ impl Renderer {
             probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
-            device.sampler_nearest(),
-            device.sampler_linear(),
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,
@@ -412,8 +409,6 @@ impl Renderer {
             probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
-            device.sampler_nearest(),
-            device.sampler_linear(),
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,

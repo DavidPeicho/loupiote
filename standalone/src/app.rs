@@ -44,7 +44,9 @@ impl ApplicationContext {
         match event {
             Event::SaveScreenshot(path) => self.save_screenshot(path),
             Event::Load(load) => match load {
-                LoadEvent::GLTF(data) => self.load_file(&data[..]).unwrap(),
+                LoadEvent::GLTF(data) => self
+                    .load_file(&data[..])
+                    .unwrap_or_else(|_| self.gui.set_error("failed to load gltf")),
                 LoadEvent::Env(data) => self.load_env(&data[..]),
             },
         }
@@ -57,7 +59,7 @@ impl ApplicationContext {
 
         let pixels_target_count = width_target * height_target;
         let (width, height) = if max_pixels_count < pixels_target_count {
-            let ratio = (max_pixels_count as f32 / pixels_target_count as f32);
+            let ratio = max_pixels_count as f32 / pixels_target_count as f32;
             (
                 (width_target as f32 * ratio) as u32,
                 (height_target as f32 * ratio) as u32,
@@ -122,9 +124,9 @@ impl ApplicationContext {
         log!("}}");
     }
 
-    pub fn load_file_path<P: AsRef<path::Path>>(&mut self, path: P) {
+    pub fn load_file_path<P: AsRef<path::Path>>(&mut self, path: P) -> Result<(), Error> {
         let bytes = std::fs::read(path).unwrap();
-        self.load_file(&bytes[..]);
+        self.load_file(&bytes[..])
     }
 
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {

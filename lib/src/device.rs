@@ -8,21 +8,15 @@ pub struct DefaultTextures {
 
 impl DefaultTextures {
     pub fn new(device: &wgpu::Device) -> Self {
-        const width: u32 = 1;
-        const height: u32 = 1;
-        const depth_or_array_layers: u32 = 1;
-        const mip_level_count: u32 = 1;
-        const sample_count: u32 = 1;
-
         let filterable_2d = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default Filterable 2D Array Texture"),
             size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers,
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
             },
-            mip_level_count,
-            sample_count,
+            mip_level_count: 1,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,

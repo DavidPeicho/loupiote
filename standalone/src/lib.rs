@@ -20,7 +20,6 @@ mod settings;
 use settings::Settings;
 
 mod errors;
-mod utils;
 
 mod logger;
 use logger::log;
@@ -101,7 +100,9 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     #[cfg(not(target_arch = "wasm32"))]
     {
         app_context.load_env_path("./assets/uffizi-large.hdr");
-        app_context.load_file_path("./assets/DamagedHelmet.glb");
+        app_context
+            .load_file_path("./assets/DamagedHelmet.glb")
+            .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -290,7 +291,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
 pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     let event_loop: winit::event_loop::EventLoop<Event> =
-        winit::event_loop::EventLoop::with_user_event();
+        winit::event_loop::EventLoopBuilder::with_user_event().build();
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title("Albedo Pathtracer");
 
@@ -333,7 +334,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
-        // max_storage_buffer_binding_size: 256 * 1024 * 1024,
+        max_storage_buffer_binding_size: 256 * 1024 * 1024,
         ..wgpu::Limits::default()
     };
     let trace_dir = std::env::var("WGPU_TRACE");

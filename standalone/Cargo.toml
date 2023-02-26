@@ -19,7 +19,7 @@ gltf = "1.1.0"
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
 egui = "0.21.0"
 egui-wgpu = "0.21.0"
-egui-winit =  "0.21.1"
+egui-winit =  { version = "0.21.0", default-features = false, features = [] }
 rfd = "0.10.0"
 pollster = "0.2"
 futures-intrusive = "0.4"

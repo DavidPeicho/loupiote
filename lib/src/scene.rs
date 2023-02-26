@@ -1,8 +1,7 @@
-use std::default;
 use std::num::NonZeroU32;
 
 use albedo_backend::GPUBuffer;
-use albedo_bvh::{BLASArray, FlatNode, Mesh};
+use albedo_bvh::{BLASArray, FlatNode};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms::{Instance, Light, Material};
 

@@ -3,7 +3,6 @@ use albedo_rtx::texture;
 use albedo_rtx::uniforms;
 
 use gltf::{self, image};
-use std::path::Path;
 
 use crate::errors::Error;
 use crate::scene::{ImageData, Scene, Vertex};
@@ -53,9 +52,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
     let (components, _) = match image.format {
         image::Format::R8 => (1, 1),
         image::Format::R8G8 => (2, 1),
-        // image::Format::B8G8R8 | image::Format::R8G8B8 => (3, 1),
         image::Format::R8G8B8 => (3, 1),
-        // image::Format::R8G8B8A8 | image::Format::B8G8R8A8 => (4, 1),
         image::Format::R8G8B8A8 => (4, 1),
         image::Format::R16 => (1, 2),
         image::Format::R16G16 => (2, 2),
@@ -65,7 +62,6 @@ fn rgba8_image(image: image::Data) -> ImageData {
         image::Format::R32G32B32A32FLOAT => (4, 4),
     };
 
-    // @todo: re-order channels if the format was BGR.
     // @todo: 16bits will break.
 
     // Allocate a new buffer if the data isn't RGBA8.
