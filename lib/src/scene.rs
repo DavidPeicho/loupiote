@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use albedo_backend::GPUBuffer;
+use albedo_backend::gpu;
 use albedo_bvh::{BLASArray, FlatNode};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms::{Instance, Light, Material};
@@ -164,7 +164,7 @@ impl TextureAtlasGPU {
             info_extent,
         );
 
-        let mut buffer = GPUBuffer::from_data(&device, atlas.textures());
+        let mut buffer = gpu::Buffer::new_with_data(&device, atlas.textures(), None);
         buffer.update(&queue, atlas.textures());
         TextureAtlasGPU {
             texture: texture,
@@ -189,12 +189,12 @@ impl TextureAtlasGPU {
 }
 
 pub struct SceneGPU {
-    pub instance_buffer: GPUBuffer<Instance>,
-    pub materials_buffer: GPUBuffer<Material>,
-    pub bvh_buffer: GPUBuffer<FlatNode>,
-    pub index_buffer: GPUBuffer<u32>,
-    pub vertex_buffer: GPUBuffer<Vertex>,
-    pub light_buffer: GPUBuffer<Light>,
+    pub instance_buffer: gpu::Buffer<Instance>,
+    pub materials_buffer: gpu::Buffer<Material>,
+    pub bvh_buffer: gpu::Buffer<FlatNode>,
+    pub index_buffer: gpu::Buffer<u32>,
+    pub vertex_buffer: gpu::Buffer<Vertex>,
+    pub light_buffer: gpu::Buffer<Light>,
     pub atlas: Option<TextureAtlasGPU>,
 }
 
@@ -267,12 +267,12 @@ impl SceneGPU {
         lights: &[Light],
     ) -> Self {
         SceneGPU {
-            instance_buffer: GPUBuffer::from_data(&device, instances),
-            materials_buffer: GPUBuffer::from_data(&device, materials),
-            bvh_buffer: GPUBuffer::from_data(&device, bvh),
-            index_buffer: GPUBuffer::from_data(&device, indices),
-            vertex_buffer: GPUBuffer::from_data(&device, vertices),
-            light_buffer: GPUBuffer::from_data(&device, lights),
+            instance_buffer: gpu::Buffer::new_storage_with_data(&device, instances, None),
+            materials_buffer: gpu::Buffer::new_storage_with_data(&device, materials, None),
+            bvh_buffer: gpu::Buffer::new_storage_with_data(&device, bvh, None),
+            index_buffer: gpu::Buffer::new_storage_with_data(&device, indices, None),
+            vertex_buffer: gpu::Buffer::new_storage_with_data(&device, vertices, None),
+            light_buffer: gpu::Buffer::new_storage_with_data(&device, lights, None),
             atlas: None,
         }
     }

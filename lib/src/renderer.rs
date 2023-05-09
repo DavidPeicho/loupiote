@@ -1,4 +1,6 @@
-use albedo_backend::{GPUBuffer, UniformBuffer};
+use std::convert::TryInto;
+
+use albedo_backend::gpu;
 
 use albedo_rtx::passes;
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
@@ -9,8 +11,8 @@ use crate::scene::SceneGPU;
 use crate::ProbeGPU;
 
 struct ScreenBoundResourcesGPU {
-    ray_buffer: GPUBuffer<Ray>,
-    intersection_buffer: GPUBuffer<Intersection>,
+    ray_buffer: gpu::Buffer<Ray>,
+    intersection_buffer: gpu::Buffer<Intersection>,
     render_target_view: wgpu::TextureView,
     #[cfg(feature = "accumulate_read_write")]
     render_target_view2: wgpu::TextureView,
@@ -47,14 +49,17 @@ impl ScreenBoundResourcesGPU {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
 
-        let pixel_count: usize = (size.0 * size.1) as usize;
+        let pixel_count: u64 = size.0 as u64 * size.1 as u64;
         ScreenBoundResourcesGPU {
-            ray_buffer: GPUBuffer::new_with_usage_count(
+            ray_buffer: gpu::Buffer::new_storage(
                 &device,
-                wgpu::BufferUsages::STORAGE,
-                pixel_count as usize,
+                pixel_count as u64,
+                Some(gpu::BufferInitDescriptor {
+                    label: Some("Ray Buffer"),
+                    usage: wgpu::BufferUsages::STORAGE,
+                }),
             ),
-            intersection_buffer: GPUBuffer::new_with_count(&device, pixel_count),
+            intersection_buffer: gpu::Buffer::new_storage(&device, pixel_count, None),
             render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
             #[cfg(feature = "accumulate_read_write")]
             render_target_view2: render_target2
@@ -81,8 +86,8 @@ impl BindGroups {
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
-        global_uniforms: &UniformBuffer<PerDrawUniforms>,
-        camera_uniforms: &UniformBuffer<Camera>,
+        global_uniforms: &gpu::Buffer<PerDrawUniforms>,
+        camera_uniforms: &gpu::Buffer<Camera>,
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPass,
@@ -105,7 +110,7 @@ impl BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device.inner(),
                 &screen_resources.ray_buffer,
-                camera_uniforms,
+                &camera_uniforms.try_into().unwrap(),
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device.inner(),
@@ -130,7 +135,7 @@ impl BindGroups {
                 probe,
                 texture_info_view,
                 atlas_view,
-                global_uniforms,
+                &global_uniforms.try_into().unwrap(),
                 device.sampler_nearest(),
                 device.sampler_linear(),
             ),
@@ -189,9 +194,9 @@ pub struct Renderer {
     downsampled_screen_bound_resources: ScreenBoundResourcesGPU,
 
     camera: Camera,
-    camera_uniforms: UniformBuffer<Camera>,
+    camera_uniforms: gpu::Buffer<Camera>,
     global_uniforms: PerDrawUniforms,
-    global_uniforms_buffer: UniformBuffer<PerDrawUniforms>,
+    global_uniforms_buffer: gpu::Buffer<PerDrawUniforms>,
 
     pub passes: Passes,
     fullscreen_bindgroups: Option<BindGroups>,
@@ -229,13 +234,13 @@ impl Renderer {
                 downsampled_size,
             ),
             camera: Default::default(),
-            camera_uniforms: UniformBuffer::new(device.inner()),
+            camera_uniforms: gpu::Buffer::new_uniform(device.inner(), 1, None),
             global_uniforms: PerDrawUniforms {
                 frame_count: 1,
                 seed: 0,
                 ..Default::default()
             },
-            global_uniforms_buffer: UniformBuffer::new(device.inner()),
+            global_uniforms_buffer: gpu::Buffer::new_uniform(device.inner(), 1, None),
             passes: Passes {
                 rays: passes::RayPass::new(device.inner(), None),
                 intersection: passes::IntersectorPass::new(device.inner(), None),
@@ -297,7 +302,7 @@ impl Renderer {
         };
 
         self.camera.dimensions = [size.0, size.1];
-        self.camera_uniforms.update(&queue, &self.camera);
+        self.camera_uniforms.update(&queue, &[self.camera]);
 
         let dispatch_size = (size.0, size.1, 1);
 
@@ -315,7 +320,7 @@ impl Renderer {
             self.global_uniforms.seed += 1;
             self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
-                .update(&queue, &self.global_uniforms);
+                .update(&queue, &[self.global_uniforms]);
             self.passes.intersection.dispatch(
                 encoder,
                 &bindgroups.intersection_pass,
