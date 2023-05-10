@@ -246,8 +246,14 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                 let renderer = &mut app_context.renderer;
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 if !app_context.settings.accumulate || !camera_controller.is_static() {
-                    renderer.reset_accumulation();
+                    renderer.reset_accumulation(&app_context.platform.queue);
                 }
+                // Debug the lightmapper. We need to reset the frame
+                // renderer.reset_accumulation(&app_context.platform.queue);
+                // renderer.lightmap(
+                //     &mut encoder,
+                //     &app_context.scene_gpu,
+                // );
                 renderer.raytrace(&mut encoder, &app_context.platform.queue);
                 renderer.blit(&mut encoder, &view);
                 renderer.accumulate = true;
