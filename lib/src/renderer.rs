@@ -31,7 +31,9 @@ impl ScreenBoundResourcesGPU {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         #[cfg(feature = "accumulate_read_write")]
@@ -78,6 +80,7 @@ struct BindGroups {
     blit_pass: wgpu::BindGroup,
     #[cfg(feature = "accumulate_read_write")]
     blit_pass2: wgpu::BindGroup,
+    lightmap_pass: wgpu::BindGroup,
 }
 
 impl BindGroups {
@@ -93,6 +96,7 @@ impl BindGroups {
         shading_pass_desc: &passes::ShadingPass,
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
+        lightmap_pass: &passes::LightmapPass,
     ) -> Self {
         let texture_info_view = match &scene_resources.atlas {
             Some(atlas) => atlas.info_texture_view(),
@@ -177,6 +181,14 @@ impl BindGroups {
                 &device.sampler_nearest(),
                 global_uniforms,
             ),
+            lightmap_pass: lightmap_pass.create_frame_bind_groups(
+                device.inner(),
+                &scene_resources.instance_buffer,
+                &scene_resources.bvh_buffer.inner(),
+                &scene_resources.index_buffer,
+                &scene_resources.vertex_buffer.inner(),
+                global_uniforms,
+            ),
         }
     }
 }
@@ -187,6 +199,7 @@ pub struct Passes {
     pub shading: passes::ShadingPass,
     pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
+    pub lightmap: passes::LightmapPass,
 }
 
 pub struct Renderer {
@@ -247,6 +260,7 @@ impl Renderer {
                 shading: passes::ShadingPass::new(device.inner()),
                 accumulation: passes::AccumulationPass::new(device.inner(), None),
                 blit: passes::BlitPass::new(device.inner(), swapchain_format),
+                lightmap: passes::LightmapPass::new(device.inner()),
             },
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -277,6 +291,29 @@ impl Renderer {
         self.set_resources(device, scene_resources, probe);
     }
 
+    pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
+        let (bindgroups, render_target_view) = if self.accumulate {
+            (
+                self.fullscreen_bindgroups.as_ref().unwrap(),
+                &self.screen_bound_resources.render_target_view,
+            )
+        } else {
+            (
+                self.downsample_bindgroups.as_ref().unwrap(),
+                &self.downsampled_screen_bound_resources.render_target_view,
+            )
+        };
+
+        self.passes.lightmap.draw(
+            encoder,
+            &render_target_view,
+            &bindgroups.lightmap_pass,
+            &scene_resources.instance_buffer,
+            &scene_resources.index_buffer,
+            &scene_resources.vertex_buffer.inner(),
+        );
+    }
+
     pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
         const STATIC_NUM_BOUNCES: u32 = 3;
         const MOVING_NUM_BOUNCES: u32 = 2;
@@ -289,7 +326,7 @@ impl Renderer {
         //     * Select fullscreen / downsample resolution.
 
         let mut nb_bounces = STATIC_NUM_BOUNCES;
-        let mut size = self.size;
+        let mut size: (u32, u32) = self.size;
         if !self.accumulate {
             nb_bounces = MOVING_NUM_BOUNCES;
             bindgroups = &self.downsample_bindgroups;
@@ -304,7 +341,7 @@ impl Renderer {
         self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &[self.camera]);
 
-        let dispatch_size = (size.0, size.1, 1);
+        let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
 
         // Step 1:
         //
@@ -365,14 +402,15 @@ impl Renderer {
         } else {
             &bindgroups.blit_pass2
         };
-
         self.passes.blit.draw(encoder, &view, bindgroup);
     }
 
-    pub fn reset_accumulation(&mut self) {
+    pub fn reset_accumulation(&mut self, queue: &wgpu::Queue) {
         self.global_uniforms.frame_count = 1;
         self.global_uniforms.seed = 0;
         self.accumulate = false;
+        self.global_uniforms_buffer
+            .update(&queue, &[self.global_uniforms]);
     }
 
     pub fn get_size(&self) -> (u32, u32) {
@@ -406,6 +444,7 @@ impl Renderer {
             &self.passes.shading,
             &self.passes.accumulation,
             &self.passes.blit,
+            &self.passes.lightmap,
         ));
         self.downsample_bindgroups = Some(BindGroups::new(
             device,
@@ -419,6 +458,7 @@ impl Renderer {
             &self.passes.shading,
             &self.passes.accumulation,
             &self.passes.blit,
+            &self.passes.lightmap,
         ));
         self.global_uniforms.frame_count = 1;
     }
