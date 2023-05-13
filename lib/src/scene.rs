@@ -15,7 +15,6 @@ pub struct Vertex {
 }
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
-impl albedo_bvh::Vertex for Vertex {}
 
 pub struct ImageData {
     data: Vec<u8>,
@@ -270,8 +269,22 @@ impl SceneGPU {
             instance_buffer: gpu::Buffer::new_storage_with_data(&device, instances, None),
             materials_buffer: gpu::Buffer::new_storage_with_data(&device, materials, None),
             bvh_buffer: gpu::Buffer::new_storage_with_data(&device, bvh, None),
-            index_buffer: gpu::Buffer::new_storage_with_data(&device, indices, Some(gpu::BufferInitDescriptor{label: None, usage: wgpu::BufferUsages::INDEX})),
-            vertex_buffer: gpu::Buffer::new_storage_with_data(&device, vertices,  Some(gpu::BufferInitDescriptor{label: None, usage: wgpu::BufferUsages::VERTEX})),
+            index_buffer: gpu::Buffer::new_storage_with_data(
+                &device,
+                indices,
+                Some(gpu::BufferInitDescriptor {
+                    label: None,
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+            ),
+            vertex_buffer: gpu::Buffer::new_storage_with_data(
+                &device,
+                vertices,
+                Some(gpu::BufferInitDescriptor {
+                    label: None,
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+            ),
             light_buffer: gpu::Buffer::new_storage_with_data(&device, lights, None),
             atlas: None,
         }

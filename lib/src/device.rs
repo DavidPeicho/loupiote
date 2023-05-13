@@ -129,3 +129,9 @@ impl Device {
         &self.sampler_linear
     }
 }
+
+impl<'a> From<&'a Device> for &'a wgpu::Device {
+    fn from(device: &'a Device) -> Self {
+        device.inner()
+    }
+}
