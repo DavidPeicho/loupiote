@@ -260,7 +260,7 @@ impl Renderer {
                 shading: passes::ShadingPass::new(device.inner()),
                 accumulation: passes::AccumulationPass::new(device.inner(), None),
                 blit: passes::BlitPass::new(device.inner(), swapchain_format),
-                lightmap: passes::LightmapPass::new(device.inner()),
+                lightmap: passes::LightmapPass::new(device.inner(), swapchain_format),
             },
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -338,10 +338,13 @@ impl Renderer {
             None => return,
         };
 
+        let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
+
         self.camera.dimensions = [size.0, size.1];
         self.camera_uniforms.update(&queue, &[self.camera]);
-
-        let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
+        self.global_uniforms.dimensions = [size.0, size.1];
+        self.global_uniforms_buffer
+            .update(&queue, &[self.global_uniforms]);
 
         // Step 1:
         //
