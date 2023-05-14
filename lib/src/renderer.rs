@@ -10,16 +10,14 @@ use crate::errors::Error;
 use crate::scene::SceneGPU;
 use crate::ProbeGPU;
 
-struct ScreenBoundResourcesGPU {
-    ray_buffer: gpu::Buffer<Ray>,
-    intersection_buffer: gpu::Buffer<Intersection>,
-    render_target_view: wgpu::TextureView,
+struct RenderTargets {
+    main: wgpu::TextureView,
     #[cfg(feature = "accumulate_read_write")]
-    render_target_view2: wgpu::TextureView,
+    second: wgpu::TextureView,
 }
 
-impl ScreenBoundResourcesGPU {
-    fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
+impl RenderTargets {
+    pub fn new(device: &Device, size: (u32, u32)) -> Self {
         let render_target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Main Render Target"),
             size: wgpu::Extent3d {
@@ -38,7 +36,7 @@ impl ScreenBoundResourcesGPU {
         });
         #[cfg(feature = "accumulate_read_write")]
         let render_target2 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Main Render Target"),
+            label: Some("Second Render Target"),
             size: wgpu::Extent3d {
                 width: size.0,
                 height: size.1,
@@ -50,7 +48,21 @@ impl ScreenBoundResourcesGPU {
             format: wgpu::TextureFormat::Rgba32Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
         });
+        Self {
+            main: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
+            #[cfg(feature = "accumulate_read_write")]
+            second: render_target2.create_view(&wgpu::TextureViewDescriptor::default()),
+        }
+    }
+}
 
+struct ScreenBoundResourcesGPU {
+    ray_buffer: gpu::Buffer<Ray>,
+    intersection_buffer: gpu::Buffer<Intersection>,
+}
+
+impl ScreenBoundResourcesGPU {
+    fn new(device: &Device, size: (u32, u32)) -> Self {
         let pixel_count: u64 = size.0 as u64 * size.1 as u64;
         ScreenBoundResourcesGPU {
             ray_buffer: gpu::Buffer::new_storage(
@@ -61,11 +73,7 @@ impl ScreenBoundResourcesGPU {
                     usage: wgpu::BufferUsages::STORAGE,
                 }),
             ),
-            intersection_buffer: gpu::Buffer::new_storage(&device, pixel_count, None),
-            render_target_view: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
-            #[cfg(feature = "accumulate_read_write")]
-            render_target_view2: render_target2
-                .create_view(&wgpu::TextureViewDescriptor::default()),
+            intersection_buffer: gpu::Buffer::new_storage(device, pixel_count, None),
         }
     }
 }
@@ -86,6 +94,7 @@ struct BindGroups {
 impl BindGroups {
     fn new(
         device: &Device,
+        render_targets: &RenderTargets,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
@@ -112,12 +121,12 @@ impl BindGroups {
         };
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.ray_buffer,
                 &camera_uniforms.try_into().unwrap(),
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.bvh_buffer.inner(),
@@ -127,7 +136,7 @@ impl BindGroups {
                 &screen_resources.ray_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.ray_buffer,
                 &scene_resources.bvh_buffer.inner(),
                 &screen_resources.intersection_buffer,
@@ -145,44 +154,44 @@ impl BindGroups {
             ),
             #[cfg(not(feature = "accumulate_read_write"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.ray_buffer,
                 global_uniforms,
-                &screen_resources.render_target_view,
+                &render_targets.main,
             ),
             #[cfg(feature = "accumulate_read_write")]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.ray_buffer,
                 global_uniforms,
-                &screen_resources.render_target_view,
-                &screen_resources.render_target_view2,
+                &render_targets.main,
+                &render_targets.second,
                 &render_target_sampler,
             ),
             #[cfg(feature = "accumulate_read_write")]
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &screen_resources.ray_buffer,
                 global_uniforms,
-                &screen_resources.render_target_view2,
-                &screen_resources.render_target_view,
+                &render_targets.main,
+                &render_targets.second,
                 &device.sampler_nearest(),
             ),
             blit_pass: blit_pass.create_frame_bind_groups(
-                device.inner(),
-                &screen_resources.render_target_view,
+                device,
+                &render_targets.main,
                 &device.sampler_nearest(),
                 global_uniforms,
             ),
             #[cfg(feature = "accumulate_read_write")]
             blit_pass2: blit_pass.create_frame_bind_groups(
-                device.inner(),
-                &screen_resources.render_target_view2,
+                device,
+                &render_targets.second,
                 &device.sampler_nearest(),
                 global_uniforms,
             ),
             lightmap_pass: lightmap_pass.create_frame_bind_groups(
-                device.inner(),
+                device,
                 &scene_resources.instance_buffer,
                 &scene_resources.bvh_buffer.inner(),
                 &scene_resources.index_buffer,
@@ -203,6 +212,8 @@ pub struct Passes {
 }
 
 pub struct Renderer {
+    render_targets: RenderTargets,
+    render_targets_downsampled: RenderTargets,
     screen_bound_resources: ScreenBoundResourcesGPU,
     downsampled_screen_bound_resources: ScreenBoundResourcesGPU,
 
@@ -241,26 +252,28 @@ impl Renderer {
         );
 
         Self {
-            screen_bound_resources: ScreenBoundResourcesGPU::new(device.inner(), size),
+            render_targets: RenderTargets::new(device, size),
+            render_targets_downsampled: RenderTargets::new(device, downsampled_size),
+            screen_bound_resources: ScreenBoundResourcesGPU::new(device, size),
             downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
-                device.inner(),
+                device,
                 downsampled_size,
             ),
             camera: Default::default(),
-            camera_uniforms: gpu::Buffer::new_uniform(device.inner(), 1, None),
+            camera_uniforms: gpu::Buffer::new_uniform(device, 1, None),
             global_uniforms: PerDrawUniforms {
                 frame_count: 1,
                 seed: 0,
                 ..Default::default()
             },
-            global_uniforms_buffer: gpu::Buffer::new_uniform(device.inner(), 1, None),
+            global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
             passes: Passes {
-                rays: passes::RayPass::new(device.inner(), None),
-                intersection: passes::IntersectorPass::new(device.inner(), None),
-                shading: passes::ShadingPass::new(device.inner()),
-                accumulation: passes::AccumulationPass::new(device.inner(), None),
-                blit: passes::BlitPass::new(device.inner(), swapchain_format),
-                lightmap: passes::LightmapPass::new(device.inner(), swapchain_format),
+                rays: passes::RayPass::new(device, None),
+                intersection: passes::IntersectorPass::new(device, None),
+                shading: passes::ShadingPass::new(device),
+                accumulation: passes::AccumulationPass::new(device, None),
+                blit: passes::BlitPass::new(device, swapchain_format),
+                lightmap: passes::LightmapPass::new(device, swapchain_format),
             },
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -285,29 +298,17 @@ impl Renderer {
     ) {
         self.size = size;
         let downsample_size = self.get_downsampled_size();
-        self.screen_bound_resources = ScreenBoundResourcesGPU::new(device.inner(), self.size);
+        self.screen_bound_resources = ScreenBoundResourcesGPU::new(device, self.size);
         self.downsampled_screen_bound_resources =
-            ScreenBoundResourcesGPU::new(device.inner(), downsample_size);
+            ScreenBoundResourcesGPU::new(device, downsample_size);
         self.set_resources(device, scene_resources, probe);
     }
 
     pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
-        let (bindgroups, render_target_view) = if self.accumulate {
-            (
-                self.fullscreen_bindgroups.as_ref().unwrap(),
-                &self.screen_bound_resources.render_target_view,
-            )
-        } else {
-            (
-                self.downsample_bindgroups.as_ref().unwrap(),
-                &self.downsampled_screen_bound_resources.render_target_view,
-            )
-        };
-
         self.passes.lightmap.draw(
             encoder,
-            &render_target_view,
-            &bindgroups.lightmap_pass,
+            &self.render_targets.main,
+            &self.fullscreen_bindgroups.as_ref().unwrap().lightmap_pass,
             &scene_resources.instance_buffer,
             &scene_resources.index_buffer,
             &scene_resources.vertex_buffer.inner(),
@@ -437,6 +438,7 @@ impl Renderer {
     ) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             device,
+            &self.render_targets,
             &self.screen_bound_resources,
             &scene_resources,
             probe,
@@ -451,6 +453,7 @@ impl Renderer {
         ));
         self.downsample_bindgroups = Some(BindGroups::new(
             device,
+            &self.render_targets_downsampled,
             &self.downsampled_screen_bound_resources,
             &scene_resources,
             probe,

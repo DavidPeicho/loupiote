@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use wgpu;
 
 pub struct DefaultTextures {
@@ -67,7 +69,7 @@ impl DefaultTextures {
 }
 
 pub struct Device {
-    device: wgpu::Device,
+    inner: wgpu::Device,
     default_textures: DefaultTextures,
     default_buffer: wgpu::Buffer,
     sampler_nearest: wgpu::Sampler,
@@ -102,7 +104,7 @@ impl Device {
         });
         let default_textures = DefaultTextures::new(&device);
         Self {
-            device,
+            inner: device,
             default_textures,
             default_buffer,
             sampler_nearest,
@@ -111,10 +113,10 @@ impl Device {
     }
 
     pub fn inner(&self) -> &wgpu::Device {
-        &self.device
+        &self.inner
     }
     pub fn inner_mut(&mut self) -> &mut wgpu::Device {
-        &mut self.device
+        &mut self.inner
     }
     pub fn default_textures(&self) -> &DefaultTextures {
         &self.default_textures
@@ -127,5 +129,13 @@ impl Device {
     }
     pub fn sampler_linear(&self) -> &wgpu::Sampler {
         &self.sampler_linear
+    }
+}
+
+impl Deref for Device {
+    type Target = wgpu::Device;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner()
     }
 }
