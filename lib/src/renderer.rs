@@ -56,28 +56,6 @@ impl RenderTargets {
     }
 }
 
-struct ScreenBoundResourcesGPU {
-    ray_buffer: gpu::Buffer<Ray>,
-    intersection_buffer: gpu::Buffer<Intersection>,
-}
-
-impl ScreenBoundResourcesGPU {
-    fn new(device: &Device, size: (u32, u32)) -> Self {
-        let pixel_count: u64 = size.0 as u64 * size.1 as u64;
-        ScreenBoundResourcesGPU {
-            ray_buffer: gpu::Buffer::new_storage(
-                &device,
-                pixel_count as u64,
-                Some(gpu::BufferInitDescriptor {
-                    label: Some("Ray Buffer"),
-                    usage: wgpu::BufferUsages::STORAGE,
-                }),
-            ),
-            intersection_buffer: gpu::Buffer::new_storage(device, pixel_count, None),
-        }
-    }
-}
-
 struct BindGroups {
     generate_ray_pass: wgpu::BindGroup,
     intersection_pass: wgpu::BindGroup,
@@ -96,7 +74,8 @@ impl BindGroups {
         device: &Device,
         size: (u32, u32),
         render_targets: &RenderTargets,
-        screen_resources: &ScreenBoundResourcesGPU,
+        ray_buffer: &gpu::Buffer<Ray>,
+        intersection_buffer: &gpu::Buffer<Intersection>,
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
         global_uniforms: &gpu::Buffer<PerDrawUniforms>,
@@ -124,26 +103,26 @@ impl BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
                 &camera_uniforms.try_into().unwrap(),
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.intersection_buffer,
+                &intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.bvh_buffer.inner(),
                 &scene_resources.index_buffer,
                 &scene_resources.vertex_buffer.inner(),
                 &scene_resources.light_buffer,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
                 &scene_resources.bvh_buffer.inner(),
-                &screen_resources.intersection_buffer,
+                &intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.index_buffer,
                 &scene_resources.vertex_buffer.inner(),
@@ -160,7 +139,7 @@ impl BindGroups {
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
                 global_uniforms,
                 &render_targets.main,
             ),
@@ -168,7 +147,7 @@ impl BindGroups {
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
                 global_uniforms,
                 &render_targets.main,
                 &render_targets.second,
@@ -178,7 +157,7 @@ impl BindGroups {
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
-                &screen_resources.ray_buffer,
+                &ray_buffer,
                 global_uniforms,
                 &render_targets.main,
                 &render_targets.second,
@@ -220,9 +199,8 @@ pub struct Passes {
 
 pub struct Renderer {
     render_targets: RenderTargets,
-    render_targets_downsampled: RenderTargets,
-    screen_bound_resources: ScreenBoundResourcesGPU,
-    downsampled_screen_bound_resources: ScreenBoundResourcesGPU,
+    ray_buffer: gpu::Buffer<Ray>,
+    intersection_buffer: gpu::Buffer<Intersection>,
 
     camera: Camera,
     camera_uniforms: gpu::Buffer<Camera>,
@@ -253,19 +231,18 @@ impl Renderer {
 
     pub fn new(device: &Device, size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
         let downsample_factor = 0.25;
-        let downsampled_size = (
-            (size.0 as f32 * downsample_factor) as u32,
-            (size.1 as f32 * downsample_factor) as u32,
-        );
-
+        let pixel_count: u64 = size.0 as u64 * size.1 as u64;
         Self {
             render_targets: RenderTargets::new(device, size),
-            render_targets_downsampled: RenderTargets::new(device, downsampled_size),
-            screen_bound_resources: ScreenBoundResourcesGPU::new(device, size),
-            downsampled_screen_bound_resources: ScreenBoundResourcesGPU::new(
-                device,
-                downsampled_size,
+            ray_buffer: gpu::Buffer::new_storage(
+                &device,
+                pixel_count as u64,
+                Some(gpu::BufferInitDescriptor {
+                    label: Some("Ray Buffer"),
+                    usage: wgpu::BufferUsages::STORAGE,
+                }),
             ),
+            intersection_buffer: gpu::Buffer::new_storage(device, pixel_count, None),
             camera: Default::default(),
             camera_uniforms: gpu::Buffer::new_uniform(device, 1, None),
             global_uniforms: PerDrawUniforms {
@@ -304,10 +281,16 @@ impl Renderer {
         size: (u32, u32),
     ) {
         self.size = size;
-        let downsample_size = self.get_downsampled_size();
-        self.screen_bound_resources = ScreenBoundResourcesGPU::new(device, self.size);
-        // self.downsampled_screen_bound_resources =
-        //     ScreenBoundResourcesGPU::new(device, downsample_size);
+        let pixel_count: u64 = size.0 as u64 * size.1 as u64;
+        self.ray_buffer = gpu::Buffer::new_storage(
+            &device,
+            pixel_count as u64,
+            Some(gpu::BufferInitDescriptor {
+                label: Some("Ray Buffer"),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        );
+        self.intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
         self.set_resources(device, scene_resources, probe);
     }
 
@@ -443,37 +426,13 @@ impl Renderer {
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
     ) {
-        self.fullscreen_bindgroups = Some(BindGroups::new(
+        self.fullscreen_bindgroups =
+            Some(self.create_bind_groups(device, scene_resources, probe, self.size));
+        self.downsample_bindgroups = Some(self.create_bind_groups(
             device,
-            self.size,
-            &self.render_targets,
-            &self.screen_bound_resources,
-            &scene_resources,
+            scene_resources,
             probe,
-            &self.global_uniforms_buffer,
-            &self.camera_uniforms,
-            &self.passes.rays,
-            &self.passes.intersection,
-            &self.passes.shading,
-            &self.passes.accumulation,
-            &self.passes.blit,
-            &self.passes.lightmap,
-        ));
-        self.downsample_bindgroups = Some(BindGroups::new(
-            device,
             self.get_downsampled_size(),
-            &self.render_targets_downsampled,
-            &self.screen_bound_resources,
-            &scene_resources,
-            probe,
-            &self.global_uniforms_buffer,
-            &self.camera_uniforms,
-            &self.passes.rays,
-            &self.passes.intersection,
-            &self.passes.shading,
-            &self.passes.accumulation,
-            &self.passes.blit,
-            &self.passes.lightmap,
         ));
         self.global_uniforms.frame_count = 1;
     }
@@ -563,5 +522,31 @@ impl Renderer {
         } else {
             Err(Error::TextureToBufferReadFail)
         }
+    }
+
+    fn create_bind_groups(
+        &self,
+        device: &Device,
+        scene_resources: &SceneGPU,
+        probe: Option<&ProbeGPU>,
+        size: (u32, u32),
+    ) -> BindGroups {
+        BindGroups::new(
+            device,
+            size,
+            &self.render_targets,
+            &self.ray_buffer,
+            &self.intersection_buffer,
+            &scene_resources,
+            probe,
+            &self.global_uniforms_buffer,
+            &self.camera_uniforms,
+            &self.passes.rays,
+            &self.passes.intersection,
+            &self.passes.shading,
+            &self.passes.accumulation,
+            &self.passes.blit,
+            &self.passes.lightmap,
+        )
     }
 }
