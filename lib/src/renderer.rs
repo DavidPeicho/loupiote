@@ -94,6 +94,7 @@ struct BindGroups {
 impl BindGroups {
     fn new(
         device: &Device,
+        size: (u32, u32),
         render_targets: &RenderTargets,
         screen_resources: &ScreenBoundResourcesGPU,
         scene_resources: &SceneGPU,
@@ -122,11 +123,13 @@ impl BindGroups {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.ray_buffer,
                 &camera_uniforms.try_into().unwrap(),
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.intersection_buffer,
                 &scene_resources.instance_buffer,
                 &scene_resources.bvh_buffer.inner(),
@@ -137,6 +140,7 @@ impl BindGroups {
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.ray_buffer,
                 &scene_resources.bvh_buffer.inner(),
                 &screen_resources.intersection_buffer,
@@ -155,6 +159,7 @@ impl BindGroups {
             #[cfg(not(feature = "accumulate_read_write"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.ray_buffer,
                 global_uniforms,
                 &render_targets.main,
@@ -162,6 +167,7 @@ impl BindGroups {
             #[cfg(feature = "accumulate_read_write")]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.ray_buffer,
                 global_uniforms,
                 &render_targets.main,
@@ -171,6 +177,7 @@ impl BindGroups {
             #[cfg(feature = "accumulate_read_write")]
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
+                size,
                 &screen_resources.ray_buffer,
                 global_uniforms,
                 &render_targets.main,
@@ -299,8 +306,8 @@ impl Renderer {
         self.size = size;
         let downsample_size = self.get_downsampled_size();
         self.screen_bound_resources = ScreenBoundResourcesGPU::new(device, self.size);
-        self.downsampled_screen_bound_resources =
-            ScreenBoundResourcesGPU::new(device, downsample_size);
+        // self.downsampled_screen_bound_resources =
+        //     ScreenBoundResourcesGPU::new(device, downsample_size);
         self.set_resources(device, scene_resources, probe);
     }
 
@@ -438,6 +445,7 @@ impl Renderer {
     ) {
         self.fullscreen_bindgroups = Some(BindGroups::new(
             device,
+            self.size,
             &self.render_targets,
             &self.screen_bound_resources,
             &scene_resources,
@@ -453,8 +461,9 @@ impl Renderer {
         ));
         self.downsample_bindgroups = Some(BindGroups::new(
             device,
+            self.get_downsampled_size(),
             &self.render_targets_downsampled,
-            &self.downsampled_screen_bound_resources,
+            &self.screen_bound_resources,
             &scene_resources,
             probe,
             &self.global_uniforms_buffer,
