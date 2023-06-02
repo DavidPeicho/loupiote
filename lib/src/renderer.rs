@@ -110,30 +110,14 @@ impl BindGroups {
                 device,
                 size,
                 &intersection_buffer,
-                &scene_resources.instance_buffer,
-                &scene_resources.bvh_buffer.inner(),
-                &scene_resources.index_buffer,
-                &scene_resources.vertex_buffer.inner(),
-                &scene_resources.light_buffer,
                 &ray_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 device,
                 size,
                 &ray_buffer,
-                &scene_resources.bvh_buffer.inner(),
                 &intersection_buffer,
-                &scene_resources.instance_buffer,
-                &scene_resources.index_buffer,
-                &scene_resources.vertex_buffer.inner(),
-                &scene_resources.light_buffer,
-                &scene_resources.materials_buffer,
-                probe,
-                texture_info_view,
-                atlas_view,
                 &global_uniforms.try_into().unwrap(),
-                device.sampler_nearest(),
-                device.sampler_linear(),
             ),
             #[cfg(not(feature = "accumulate_read_write"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
@@ -208,6 +192,10 @@ pub struct Renderer {
     global_uniforms_buffer: gpu::Buffer<PerDrawUniforms>,
 
     pub passes: Passes,
+
+    scene_bindgroup_layout: albedo_rtx::RTSceneBindGroupLayout,
+    scene_bindgroup: Option<wgpu::BindGroup>,
+
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
 
@@ -232,6 +220,9 @@ impl Renderer {
     pub fn new(device: &Device, size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
         let downsample_factor = 0.25;
         let pixel_count: u64 = size.0 as u64 * size.1 as u64;
+
+        let scene_bindgroup_layout = albedo_rtx::RTSceneBindGroupLayout::new(device);
+
         Self {
             render_targets: RenderTargets::new(device, size),
             ray_buffer: gpu::Buffer::new_storage(
@@ -253,12 +244,16 @@ impl Renderer {
             global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
             passes: Passes {
                 rays: passes::RayPass::new(device, None),
-                intersection: passes::IntersectorPass::new(device, None),
-                shading: passes::ShadingPass::new(device),
+                intersection: passes::IntersectorPass::new(device, &scene_bindgroup_layout, None),
+                shading: passes::ShadingPass::new(device, &scene_bindgroup_layout),
                 accumulation: passes::AccumulationPass::new(device, None),
                 blit: passes::BlitPass::new(device, swapchain_format),
                 lightmap: passes::LightmapPass::new(device, swapchain_format),
             },
+
+            scene_bindgroup_layout,
+            scene_bindgroup: None,
+
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
             size,
@@ -329,6 +324,11 @@ impl Renderer {
             None => return,
         };
 
+        let scene_bindgroup = match &self.scene_bindgroup {
+            Some(val) => val,
+            None => return,
+        };
+
         let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
 
         self.camera.dimensions = [size.0, size.1];
@@ -354,12 +354,16 @@ impl Renderer {
                 .update(&queue, &[self.global_uniforms]);
             self.passes.intersection.dispatch(
                 encoder,
+                &scene_bindgroup,
                 &bindgroups.intersection_pass,
                 dispatch_size,
             );
-            self.passes
-                .shading
-                .dispatch(encoder, &bindgroups.shading_pass, dispatch_size);
+            self.passes.shading.dispatch(
+                encoder,
+                scene_bindgroup,
+                &bindgroups.shading_pass,
+                dispatch_size,
+            );
         }
 
         // Accumulation
@@ -426,6 +430,19 @@ impl Renderer {
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
     ) {
+        let texture_info_view = match &scene_resources.atlas {
+            Some(atlas) => atlas.info_texture_view(),
+            _ => device.default_textures().non_filterable_1d(),
+        };
+        let texture_atlas_view = match &scene_resources.atlas {
+            Some(atlas) => atlas.texture_view(),
+            _ => device.default_textures().filterable_2darray(),
+        };
+        let probe_view = match probe {
+            Some(p) => &p.view,
+            _ => device.default_textures().filterable_2d(),
+        };
+
         self.fullscreen_bindgroups =
             Some(self.create_bind_groups(device, scene_resources, probe, self.size));
         self.downsample_bindgroups = Some(self.create_bind_groups(
@@ -433,6 +450,20 @@ impl Renderer {
             scene_resources,
             probe,
             self.get_downsampled_size(),
+        ));
+        self.scene_bindgroup = Some(self.scene_bindgroup_layout.create_bindgroup(
+            device,
+            scene_resources.bvh_buffer.as_storage_slice().unwrap(),
+            scene_resources.instance_buffer.as_storage_slice().unwrap(),
+            scene_resources.index_buffer.as_storage_slice().unwrap(),
+            scene_resources.vertex_buffer.as_storage_slice().unwrap(),
+            scene_resources.light_buffer.as_storage_slice().unwrap(),
+            scene_resources.materials_buffer.as_storage_slice().unwrap(),
+            probe_view,
+            texture_info_view,
+            texture_atlas_view,
+            device.sampler_nearest(),
+            device.sampler_linear(),
         ));
         self.global_uniforms.frame_count = 1;
     }
