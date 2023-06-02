@@ -1,20 +1,12 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::gpu;
-use albedo_bvh::{BLASArray, FlatNode};
+use albedo_bvh::{BLASArray, BVHNode};
 use albedo_rtx::texture;
-use albedo_rtx::uniforms::{Instance, Light, Material};
+use albedo_rtx::uniforms::{Instance, Light, Material, Vertex};
 
 use crate::ProxyMesh;
 
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct Vertex {
-    pub position: [f32; 4],
-    pub normal: [f32; 4],
-}
-unsafe impl bytemuck::Pod for Vertex {}
-unsafe impl bytemuck::Zeroable for Vertex {}
 pub struct ImageData {
     data: Vec<u8>,
     width: u32,
@@ -65,7 +57,7 @@ impl Default for Scene {
                     vertex: albedo_bvh::INVALID_INDEX,
                     index: albedo_bvh::INVALID_INDEX,
                 }],
-                nodes: vec![FlatNode {
+                nodes: vec![BVHNode {
                     ..Default::default()
                 }],
                 vertices: vec![Vertex {
@@ -189,7 +181,7 @@ impl TextureAtlasGPU {
 pub struct SceneGPU {
     pub instance_buffer: gpu::Buffer<Instance>,
     pub materials_buffer: gpu::Buffer<Material>,
-    pub bvh_buffer: gpu::Buffer<FlatNode>,
+    pub bvh_buffer: gpu::Buffer<BVHNode>,
     pub index_buffer: gpu::Buffer<u32>,
     pub vertex_buffer: gpu::Buffer<Vertex>,
     pub light_buffer: gpu::Buffer<Light>,
@@ -259,7 +251,7 @@ impl SceneGPU {
         device: &wgpu::Device,
         instances: &[Instance],
         materials: &[Material],
-        bvh: &[FlatNode],
+        bvh: &[BVHNode],
         indices: &[u32],
         vertices: &[Vertex],
         lights: &[Light],

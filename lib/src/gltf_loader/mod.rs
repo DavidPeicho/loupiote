@@ -5,7 +5,7 @@ use albedo_rtx::uniforms;
 use gltf::{self, image};
 
 use crate::errors::Error;
-use crate::scene::{ImageData, Scene, Vertex};
+use crate::scene::{ImageData, Scene};
 
 pub struct GLTFLoaderOptions {
     pub atlas_max_size: u32,
@@ -17,22 +17,19 @@ pub struct ProxyMesh {
     uvs: Option<Vec<[f32; 2]>>,
     indices: Vec<u32>,
 }
-impl Mesh<Vertex> for ProxyMesh {
+impl Mesh<uniforms::Vertex> for ProxyMesh {
     fn index(&self, index: u32) -> Option<&u32> {
         self.indices.get(index as usize)
     }
 
-    fn vertex(&self, index: u32) -> Vertex {
+    fn vertex(&self, index: u32) -> uniforms::Vertex {
         let pos = self.positions[index as usize];
         let normal = self.normals[index as usize];
         let uv = match &self.uvs {
             Some(u) => u[index as usize],
             None => [0.0, 0.0],
         };
-        Vertex {
-            position: [pos[0], pos[1], pos[2], uv[0]],
-            normal: [normal[0], normal[1], normal[2], uv[1]],
-        }
+        uniforms::Vertex::new(&pos, &normal, Some(&uv))
     }
 
     fn vertex_count(&self) -> u32 {
