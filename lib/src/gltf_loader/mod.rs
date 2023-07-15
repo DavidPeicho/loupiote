@@ -6,30 +6,21 @@ use gltf::{self, image};
 
 use crate::errors::Error;
 use crate::scene::{ImageData, Scene};
+use crate::BLAS;
 
 pub struct GLTFLoaderOptions {
     pub atlas_max_size: u32,
 }
 
 pub struct ProxyMesh {
-    positions: Vec<[f32; 3]>,
-    normals: Vec<[f32; 3]>,
-    uvs: Option<Vec<[f32; 2]>>,
-    indices: Vec<u32>,
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub uvs: Option<Vec<[f32; 2]>>,
+    pub indices: Vec<u32>,
 }
-impl Mesh<uniforms::Vertex> for ProxyMesh {
-    fn index(&self, index: u32) -> Option<&u32> {
-        self.indices.get(index as usize)
-    }
-
-    fn vertex(&self, index: u32) -> uniforms::Vertex {
-        let pos = self.positions[index as usize];
-        let normal = self.normals[index as usize];
-        let uv = match &self.uvs {
-            Some(u) => u[index as usize],
-            None => [0.0, 0.0],
-        };
-        uniforms::Vertex::new(&pos, &normal, Some(&uv))
+impl Mesh for ProxyMesh {
+    fn index(&self, index: u32) -> Option<u32> {
+        Some(self.indices[index as usize])
     }
 
     fn vertex_count(&self) -> u32 {
@@ -143,10 +134,7 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
         });
     }
 
-    let mut builder = builders::SAHBuilder::new();
-    let blas =
-        BLASArray::new(&meshes, &mut builder).or_else(|e| Err(Error::AccelBuild(e.into())))?;
-
+    let blas = BLAS::new(&meshes)?;
     for node in doc.nodes() {
         // @todo: handle scene graph.
         // User should have their own scene graph. However, for pure pathtracing

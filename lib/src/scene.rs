@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
 
 use albedo_backend::gpu;
-use albedo_bvh::{BLASArray, BVHNode};
+use albedo_bvh::{builders, BLASArray, BVHNode, Mesh};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms::{Instance, Light, Material, Vertex};
 
+use crate::Error;
 use crate::ProxyMesh;
 
 pub struct ImageData {
@@ -32,11 +33,64 @@ impl ImageData {
     }
 }
 
+pub struct BLAS {
+    inner: albedo_bvh::BLASArray,
+    pub vertices: Vec<Vertex>,
+}
+
+impl BLAS {
+    pub fn new(meshes: &[ProxyMesh]) -> Result<BLAS, crate::Error> {
+        let mut builder: builders::SAHBuilder = builders::SAHBuilder::new();
+        let blas =
+            BLASArray::new(&meshes, &mut builder).or_else(|e| Err(Error::AccelBuild(e.into())))?;
+
+        let mut vertices = Vec::with_capacity(blas.vertex_count());
+        for mesh in meshes {
+            for v in 0..mesh.vertex_count() {
+                let pos = mesh.positions[v as usize];
+                let normal = mesh.normals[v as usize];
+                let uv = match &mesh.uvs {
+                    Some(u) => u[v as usize],
+                    None => [0.0, 0.0],
+                };
+                // @todo: this assumes normal are always available.
+                vertices.push(Vertex {
+                    position: [pos[0], pos[1], pos[2], uv[0]],
+                    normal: [normal[0], normal[1], normal[2], uv[1]],
+                });
+            }
+        }
+        Ok(Self {
+            inner: blas,
+            vertices,
+        })
+    }
+}
+
+impl Default for BLAS {
+    fn default() -> Self {
+        Self {
+            inner: BLASArray::empty(),
+            vertices: vec![Vertex {
+                ..Default::default()
+            }],
+        }
+    }
+}
+
+impl std::ops::Deref for BLAS {
+    type Target = BLASArray;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 pub struct Scene {
     pub meshes: Vec<ProxyMesh>,
     pub instances: Vec<Instance>,
     pub materials: Vec<Material>,
-    pub blas: BLASArray<Vertex>,
+    pub blas: BLAS,
     pub lights: Vec<Light>,
     pub atlas: Option<texture::TextureAtlas>,
 }
@@ -51,19 +105,8 @@ impl Default for Scene {
             materials: vec![Material {
                 ..Default::default()
             }],
-            blas: BLASArray {
-                entries: vec![albedo_bvh::BLASEntryDescriptor {
-                    node: albedo_bvh::INVALID_INDEX,
-                    vertex: albedo_bvh::INVALID_INDEX,
-                    index: albedo_bvh::INVALID_INDEX,
-                }],
-                nodes: vec![BVHNode {
-                    ..Default::default()
-                }],
-                vertices: vec![Vertex {
-                    ..Default::default()
-                }],
-                indices: vec![albedo_bvh::INVALID_INDEX],
+            blas: BLAS {
+                ..Default::default()
             },
             lights: vec![Light::new()],
             atlas: None,
