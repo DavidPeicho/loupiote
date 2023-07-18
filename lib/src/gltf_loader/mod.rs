@@ -1,3 +1,5 @@
+use albedo_backend::data::Slice;
+use albedo_backend::mesh::IndexDataSlice;
 use albedo_bvh::{builders, BLASArray, Mesh};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms;
@@ -19,20 +21,12 @@ pub struct ProxyMesh {
     pub indices: Vec<u32>,
 }
 impl Mesh for ProxyMesh {
-    fn index(&self, index: u32) -> Option<u32> {
-        Some(self.indices[index as usize])
+    fn indices(&self) -> Option<IndexDataSlice> {
+        Some(IndexDataSlice::U32(Slice::from_slice(&self.indices)))
     }
 
-    fn vertex_count(&self) -> u32 {
-        self.positions.len() as u32
-    }
-
-    fn index_count(&self) -> u32 {
-        self.indices.len() as u32
-    }
-
-    fn position(&self, index: u32) -> Option<&[f32; 3]> {
-        self.positions.get(index as usize)
+    fn positions(&self) -> Option<Slice<[f32; 3]>> {
+        Some(Slice::from_slice(&self.positions))
     }
 }
 

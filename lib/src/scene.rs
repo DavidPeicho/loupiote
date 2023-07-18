@@ -46,7 +46,7 @@ impl BLAS {
 
         let mut vertices = Vec::with_capacity(blas.vertex_count());
         for mesh in meshes {
-            for v in 0..mesh.vertex_count() {
+            for v in 0..mesh.positions.len() {
                 let pos = mesh.positions[v as usize];
                 let normal = mesh.normals[v as usize];
                 let uv = match &mesh.uvs {
