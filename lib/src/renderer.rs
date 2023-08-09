@@ -193,8 +193,10 @@ pub struct Renderer {
 
     pub passes: Passes,
 
-    scene_bindgroup_layout: albedo_rtx::RTSceneBindGroupLayout,
-    scene_bindgroup: Option<wgpu::BindGroup>,
+    geometry_bindgroup_layout: albedo_rtx::RTGeometryBindGroupLayout,
+    surface_bindgroup_layout: albedo_rtx::RTSurfaceBindGroupLayout,
+    geometry_bindgroup: Option<wgpu::BindGroup>,
+    surface_bindgroup: Option<wgpu::BindGroup>,
 
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
@@ -221,7 +223,8 @@ impl Renderer {
         let downsample_factor = 0.25;
         let pixel_count: u64 = size.0 as u64 * size.1 as u64;
 
-        let scene_bindgroup_layout = albedo_rtx::RTSceneBindGroupLayout::new(device);
+        let geometry_bindgroup_layout = albedo_rtx::RTGeometryBindGroupLayout::new(device);
+        let surface_bindgroup_layout = albedo_rtx::RTSurfaceBindGroupLayout::new(device);
 
         Self {
             render_targets: RenderTargets::new(device, size),
@@ -244,15 +247,25 @@ impl Renderer {
             global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
             passes: Passes {
                 rays: passes::RayPass::new(device, None),
-                intersection: passes::IntersectorPass::new(device, &scene_bindgroup_layout, None),
-                shading: passes::ShadingPass::new(device, &scene_bindgroup_layout),
+                intersection: passes::IntersectorPass::new(
+                    device,
+                    &geometry_bindgroup_layout,
+                    None,
+                ),
+                shading: passes::ShadingPass::new(
+                    device,
+                    &geometry_bindgroup_layout,
+                    &surface_bindgroup_layout,
+                ),
                 accumulation: passes::AccumulationPass::new(device, None),
                 blit: passes::BlitPass::new(device, swapchain_format),
                 lightmap: passes::LightmapPass::new(device, swapchain_format),
             },
 
-            scene_bindgroup_layout,
-            scene_bindgroup: None,
+            geometry_bindgroup_layout,
+            surface_bindgroup_layout,
+            geometry_bindgroup: None,
+            surface_bindgroup: None,
 
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
@@ -324,10 +337,11 @@ impl Renderer {
             None => return,
         };
 
-        let scene_bindgroup = match &self.scene_bindgroup {
+        let geometry_bindgroup = match &self.geometry_bindgroup {
             Some(val) => val,
             None => return,
         };
+        let surface_bindgroup = self.surface_bindgroup.as_ref().unwrap();
 
         let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
 
@@ -354,13 +368,14 @@ impl Renderer {
                 .update(&queue, &[self.global_uniforms]);
             self.passes.intersection.dispatch(
                 encoder,
-                &scene_bindgroup,
+                &geometry_bindgroup,
                 &bindgroups.intersection_pass,
                 dispatch_size,
             );
             self.passes.shading.dispatch(
                 encoder,
-                scene_bindgroup,
+                geometry_bindgroup,
+                surface_bindgroup,
                 &bindgroups.shading_pass,
                 dispatch_size,
             );
@@ -451,13 +466,16 @@ impl Renderer {
             probe,
             self.get_downsampled_size(),
         ));
-        self.scene_bindgroup = Some(self.scene_bindgroup_layout.create_bindgroup(
+        self.geometry_bindgroup = Some(self.geometry_bindgroup_layout.create_bindgroup(
             device,
             scene_resources.bvh_buffer.as_storage_slice().unwrap(),
             scene_resources.instance_buffer.as_storage_slice().unwrap(),
             scene_resources.index_buffer.as_storage_slice().unwrap(),
             scene_resources.vertex_buffer.as_storage_slice().unwrap(),
             scene_resources.light_buffer.as_storage_slice().unwrap(),
+        ));
+        self.surface_bindgroup = Some(self.surface_bindgroup_layout.create_bindgroup(
+            device,
             scene_resources.materials_buffer.as_storage_slice().unwrap(),
             probe_view,
             texture_info_view,
