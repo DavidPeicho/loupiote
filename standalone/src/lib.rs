@@ -1,6 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use wgpu::InstanceFlags;
 use winit;
 
 use albedo_lib::*;
@@ -74,7 +75,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     let scene = Scene::default();
     let scene_gpu = SceneGPU::new_from_scene(&scene, platform.device.inner(), &platform.queue);
 
-    let mut gui = gui::GUI::new(&platform.device.inner(), &event_loop, &surface_config);
+    let mut gui = gui::GUI::new(&platform.window, &platform.device.inner(), &surface_config);
     #[cfg(not(target_arch = "wasm32"))]
     {
         let adapter_info = platform.adapter.get_info();
@@ -133,6 +134,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                     },
                 ..
             } => {
+                // winit bug
+                if size.width == u32::MAX || size.height == u32::MAX {
+                    return;
+                }
                 let width = size.width.max(1);
                 let height = size.height.max(1);
                 surface_config.width = width;
@@ -319,9 +324,12 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     }
 
     let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
+    let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         dx12_shader_compiler,
+        gles_minor_version,
+        flags: wgpu::InstanceFlags::from_build_config().with_env(),
     });
     let surface = unsafe { instance.create_surface(&window) }.unwrap();
     let adapter = instance

@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use albedo_backend::gpu;
 use albedo_bvh::{builders, BLASArray, BVHNode, Mesh};
 use albedo_rtx::texture;
@@ -156,8 +154,8 @@ impl TextureAtlasGPU {
             atlas.data(),
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * atlas.size()),
-                rows_per_image: NonZeroU32::new(atlas.size()),
+                bytes_per_row: Some(4 * atlas.size()),
+                rows_per_image: Some(atlas.size()),
             },
             atlas_extent,
         );
@@ -191,7 +189,7 @@ impl TextureAtlasGPU {
             info_data_raw,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(info_data_bytes as u32),
+                bytes_per_row: Some(info_data_bytes as u32),
                 rows_per_image: None,
             },
             info_extent,
@@ -270,10 +268,10 @@ impl ProbeGPU {
             data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(
+                bytes_per_row: Some(
                     std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>() as u32 * width,
                 ),
-                rows_per_image: NonZeroU32::new(height),
+                rows_per_image: Some(height),
             },
             wgpu::Extent3d {
                 width,

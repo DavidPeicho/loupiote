@@ -536,9 +536,7 @@ impl Renderer {
                 buffer: &gpu_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(
-                        std::num::NonZeroU32::new(alignment.padded_bytes() as u32).unwrap(),
-                    ),
+                    bytes_per_row: Some(alignment.padded_bytes() as u32),
                     rows_per_image: None,
                 },
             },

@@ -1,5 +1,3 @@
-use egui_winit;
-
 use crate::{Event, LoadEvent};
 
 mod toolbar;
@@ -22,13 +20,22 @@ pub struct GUI {
 
 impl GUI {
     pub fn new(
+        window: &winit::window::Window,
         device: &wgpu::Device,
-        event_loop: &winit::event_loop::EventLoop<Event>,
         surface_config: &wgpu::SurfaceConfiguration,
     ) -> Self {
+        // Create the egui context
+        let context = egui::Context::default();
+        // Create the winit/egui integration.
+        let platform = egui_winit::State::new(
+            egui::ViewportId::default(),
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+        );
         GUI {
-            platform: egui_winit::State::new(event_loop),
-            context: Default::default(),
+            platform,
+            context,
             renderer: egui_wgpu::Renderer::new(device, surface_config.format, None, 1),
             captured: false,
             error_window: None,
@@ -43,15 +50,25 @@ impl GUI {
         self.error_window = Some(windows::ErrorWindow::new(message.into()));
     }
 
-    pub fn resize(&mut self, dpi: f32) {
-        self.platform.set_pixels_per_point(dpi);
-    }
+    pub fn resize(&mut self, _: f32) {}
 
     pub fn handle_event<T>(&mut self, winit_event: &winit::event::Event<T>) -> bool {
         use winit::event::*;
         match winit_event {
             Event::WindowEvent { event, .. } => {
-                let consumed = self.platform.on_event(&self.context, &event).consumed;
+                match event {
+                    winit::event::WindowEvent::Resized(size) => {
+                        // winit bug
+                        if size.width == u32::MAX || size.height == u32::MAX {
+                            return false;
+                        }
+                    }
+                    _ => (),
+                }
+                let consumed = self
+                    .platform
+                    .on_window_event(&self.context, &event)
+                    .consumed;
                 self.captured = match event {
                     WindowEvent::CursorMoved { .. } => self.context.wants_pointer_input(),
                     _ => consumed,
@@ -72,28 +89,29 @@ impl GUI {
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
     ) -> Vec<wgpu::CommandBuffer> {
+        self.context
+            .begin_frame(self.platform.take_egui_input(&platform.window));
+
+        let ctx = &self.context;
+
         let windows = &mut self.windows;
-        let raw_inputs = self.platform.take_egui_input(&platform.window);
+        render_menu_bar(ctx, windows, settings, platform, executor, event_loop_proxy);
+        windows.scene_info_window.render(ctx);
+        windows.performance_info_window.render(ctx);
+
+        let pixels_per_point = platform.window.scale_factor() as f32;
+        let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+            size_in_pixels: [surface_config.width, surface_config.height],
+            pixels_per_point,
+        };
+
         let egui::FullOutput {
             shapes,
             textures_delta,
-            platform_output,
             ..
-        } = self.context.run(raw_inputs, |egui_ctx| {
-            render_menu_bar(
-                egui_ctx,
-                windows,
-                settings,
-                platform,
-                executor,
-                event_loop_proxy,
-            );
-            windows.scene_info_window.render(egui_ctx);
-            windows.performance_info_window.render(egui_ctx);
-        });
+        } = self.context.end_frame();
 
-        self.platform
-            .handle_platform_output(&platform.window, &self.context, platform_output);
+        let paint_jobs = self.context.tessellate(shapes, pixels_per_point);
 
         if let Some(error_window) = &mut self.error_window {
             error_window.render(&self.context);
@@ -101,13 +119,6 @@ impl GUI {
                 self.error_window = None;
             }
         }
-
-        let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
-            size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: platform.window.scale_factor() as f32,
-        };
-
-        let paint_jobs = self.context.tessellate(shapes);
 
         let user_cmd_bufs = {
             for (id, image_delta) in &textures_delta.set {
@@ -134,11 +145,13 @@ impl GUI {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
                 label: Some("egui main render pass"),
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             rpass.push_debug_group("egui_pass");
             self.renderer
@@ -167,7 +180,6 @@ fn render_menu_bar(
 ) {
     use egui::*;
     TopBottomPanel::top("menu_bar").show(context, |ui| {
-        trace!(ui);
         menu::bar(ui, |ui| {
             render_file_menu(ui, platform, executor, event_loop_proxy);
             ui.menu_button("Windows", |ui| {
