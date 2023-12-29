@@ -3,20 +3,18 @@ name = "standalone"
 version = "0.1.0"
 authors = ["David Peicho <david.peicho@gmail.com>"]
 edition = "2018"
-resolver = "2"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-bytemuck = "1.4.1"
+image = { workspace = true }
+glam = { workspace = true }
+wgpu = { workspace = true }
+albedo_lib = { path = "../lib", version = "0.0.1-beta.0", features = [] }
 hotwatch = "0.4.6"
 winit = "0.28.0"
 enumflags2 = "0.7.1"
-wgpu = "0.18.0"
-glam = "0.20.2"
-gltf = "1.1.0"
-image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
 egui = "0.24.0"
 egui-wgpu =  { version = "0.24.0", default-features = false, features = [
     "winit"
@@ -24,13 +22,12 @@ egui-wgpu =  { version = "0.24.0", default-features = false, features = [
 egui-winit =  { version = "0.24.0", default-features = false, features = [] }
 rfd = "0.10.0"
 pollster = "0.2"
-futures-intrusive = "0.4"
-albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
-albedo_lib = { path = "../lib", version = "0.0.1-beta.0", features = [] }
 
+# Native dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 async-executor = "1.0"
 
+# WASM dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.83"
 wasm-bindgen-futures = "0.4.33"

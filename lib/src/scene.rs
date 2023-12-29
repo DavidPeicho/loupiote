@@ -1,5 +1,5 @@
 use albedo_backend::gpu;
-use albedo_bvh::{builders, BLASArray, BVHNode, Mesh};
+use albedo_bvh::{builders, BLASArray, BVHNode};
 use albedo_rtx::texture;
 use albedo_rtx::uniforms::{Instance, Light, Material, Vertex};
 

@@ -78,7 +78,6 @@ impl BindGroups {
         ray_buffer: &gpu::Buffer<Ray>,
         intersection_buffer: &gpu::Buffer<Intersection>,
         scene_resources: &SceneGPU,
-        probe: Option<&ProbeGPU>,
         global_uniforms: &gpu::Buffer<PerDrawUniforms>,
         camera_uniforms: &gpu::Buffer<Camera>,
         ray_pass_desc: &passes::RayPass,
@@ -450,13 +449,9 @@ impl Renderer {
         };
 
         self.fullscreen_bindgroups =
-            Some(self.create_bind_groups(device, scene_resources, probe, self.size));
-        self.downsample_bindgroups = Some(self.create_bind_groups(
-            device,
-            scene_resources,
-            probe,
-            self.get_downsampled_size(),
-        ));
+            Some(self.create_bind_groups(device, scene_resources, self.size));
+        self.downsample_bindgroups =
+            Some(self.create_bind_groups(device, scene_resources, self.get_downsampled_size()));
         self.geometry_bindgroup = Some(self.geometry_bindgroup_layout.create_bindgroup(
             device,
             scene_resources.bvh_buffer.as_storage_slice().unwrap(),
@@ -566,7 +561,6 @@ impl Renderer {
         &self,
         device: &Device,
         scene_resources: &SceneGPU,
-        probe: Option<&ProbeGPU>,
         size: (u32, u32),
     ) -> BindGroups {
         BindGroups::new(
@@ -576,7 +570,6 @@ impl Renderer {
             &self.ray_buffer,
             &self.intersection_buffer,
             &scene_resources,
-            probe,
             &self.global_uniforms_buffer,
             &self.camera_uniforms,
             &self.passes.rays,

@@ -1,6 +1,6 @@
 use albedo_backend::data::Slice;
 use albedo_backend::mesh::IndexDataSlice;
-use albedo_bvh::{builders, BLASArray, Mesh};
+use albedo_bvh::Mesh;
 use albedo_rtx::texture;
 use albedo_rtx::uniforms;
 

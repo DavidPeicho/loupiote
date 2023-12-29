@@ -1,7 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use wgpu::InstanceFlags;
 use winit;
 
 use albedo_lib::*;
