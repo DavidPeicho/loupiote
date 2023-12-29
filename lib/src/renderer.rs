@@ -12,7 +12,7 @@ use crate::ProbeGPU;
 
 struct RenderTargets {
     main: wgpu::TextureView,
-    #[cfg(feature = "accumulate_read_write")]
+    #[cfg(target_arch = "wasm32")]
     second: wgpu::TextureView,
 }
 
@@ -34,7 +34,7 @@ impl RenderTargets {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        #[cfg(feature = "accumulate_read_write")]
+        #[cfg(target_arch = "wasm32")]
         let render_target2 = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Second Render Target"),
             size: wgpu::Extent3d {
@@ -47,10 +47,11 @@ impl RenderTargets {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
         });
         Self {
             main: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
-            #[cfg(feature = "accumulate_read_write")]
+            #[cfg(target_arch = "wasm32")]
             second: render_target2.create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
@@ -61,10 +62,10 @@ struct BindGroups {
     intersection_pass: wgpu::BindGroup,
     shading_pass: wgpu::BindGroup,
     accumulate_pass: wgpu::BindGroup,
-    #[cfg(feature = "accumulate_read_write")]
+    #[cfg(target_arch = "wasm32")]
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
-    #[cfg(feature = "accumulate_read_write")]
+    #[cfg(target_arch = "wasm32")]
     blit_pass2: wgpu::BindGroup,
     lightmap_pass: wgpu::BindGroup,
 }
@@ -87,18 +88,6 @@ impl BindGroups {
         blit_pass: &passes::BlitPass,
         lightmap_pass: &passes::LightmapPass,
     ) -> Self {
-        let texture_info_view = match &scene_resources.atlas {
-            Some(atlas) => atlas.info_texture_view(),
-            _ => device.default_textures().non_filterable_1d(),
-        };
-        let atlas_view = match &scene_resources.atlas {
-            Some(atlas) => atlas.texture_view(),
-            _ => device.default_textures().filterable_2darray(),
-        };
-        let probe = match probe {
-            Some(p) => &p.view,
-            _ => device.default_textures().filterable_2d(),
-        };
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
@@ -119,7 +108,7 @@ impl BindGroups {
                 &intersection_buffer,
                 &global_uniforms.try_into().unwrap(),
             ),
-            #[cfg(not(feature = "accumulate_read_write"))]
+            #[cfg(not(target_arch = "wasm32"))]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
@@ -127,7 +116,7 @@ impl BindGroups {
                 global_uniforms,
                 &render_targets.main,
             ),
-            #[cfg(feature = "accumulate_read_write")]
+            #[cfg(target_arch = "wasm32")]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
@@ -135,16 +124,16 @@ impl BindGroups {
                 global_uniforms,
                 &render_targets.main,
                 &render_targets.second,
-                &render_target_sampler,
+                &device.sampler_nearest(),
             ),
-            #[cfg(feature = "accumulate_read_write")]
+            #[cfg(target_arch = "wasm32")]
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
                 &ray_buffer,
                 global_uniforms,
-                &render_targets.main,
                 &render_targets.second,
+                &render_targets.main,
                 &device.sampler_nearest(),
             ),
             blit_pass: blit_pass.create_frame_bind_groups(
@@ -153,7 +142,7 @@ impl BindGroups {
                 &device.sampler_nearest(),
                 global_uniforms,
             ),
-            #[cfg(feature = "accumulate_read_write")]
+            #[cfg(target_arch = "wasm32")]
             blit_pass2: blit_pass.create_frame_bind_groups(
                 device,
                 &render_targets.second,
@@ -225,9 +214,10 @@ impl Renderer {
 
         let geometry_bindgroup_layout = albedo_rtx::RTGeometryBindGroupLayout::new(device);
         let surface_bindgroup_layout = albedo_rtx::RTSurfaceBindGroupLayout::new(device);
+        let render_targets = RenderTargets::new(device, size);
 
         Self {
-            render_targets: RenderTargets::new(device, size),
+            render_targets,
             ray_buffer: gpu::Buffer::new_storage(
                 &device,
                 pixel_count as u64,
@@ -362,6 +352,7 @@ impl Renderer {
         //
         // Alternate between intersection & shading.
         for i in 0..nb_bounces {
+            // @todo: Use dynamic offset
             self.global_uniforms.seed += 1;
             self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
@@ -382,9 +373,9 @@ impl Renderer {
         }
 
         // Accumulation
-        #[cfg(not(feature = "accumulate_read_write"))]
+        #[cfg(not(target_arch = "wasm32"))]
         let accumulate_bindgroup = &bindgroups.accumulate_pass;
-        #[cfg(feature = "accumulate_read_write")]
+        #[cfg(target_arch = "wasm32")]
         let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
             &bindgroups.accumulate_pass
         } else {
@@ -407,9 +398,9 @@ impl Renderer {
             self.downsample_bindgroups.as_ref().unwrap()
         };
 
-        #[cfg(not(feature = "accumulate_read_write"))]
+        #[cfg(not(target_arch = "wasm32"))]
         let bindgroup = &bindgroups.blit_pass;
-        #[cfg(feature = "accumulate_read_write")]
+        #[cfg(target_arch = "wasm32")]
         let bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
             &bindgroups.blit_pass
         } else {

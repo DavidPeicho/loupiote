@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "build:standalone": "wasm-pack build standalone --out-dir dist/ --target web",
-    "start:standalone": "yarn build:standalone && serve standalone -l 8080",
+    "build:standalone:debug": "wasm-pack build standalone --dev --out-dir dist/ --target web",
+    "start:standalone": "yarn build:standalone:debug && serve standalone -l 8080",
     "standalone": "cargo run standalone"
   },
   "devDependencies": {
