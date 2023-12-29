@@ -5,12 +5,6 @@ authors = ["David Peicho <david.peicho@gmail.com>"]
 edition = "2018"
 resolver = "2"
 
-[features]
-accumulate_read_write = ["albedo_rtx/accumulate_read_write"]
-
-[target.'cfg(target_arch = "wasm32")'.features]
-default = ["accumulate_read_write"]
-
 [lib]
 [target.'cfg(target_arch = "wasm32")']
 crate-type = ["cdylib"]
@@ -31,7 +25,9 @@ albedo_backend = { path = "../../albedo-engine/crates/albedo_backend" }
 albedo_bvh = { path = "../../albedo-engine/crates/albedo_bvh", version = "0.0.1-beta.0" }
 albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies] # @todo: remove.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# albedo_rtx requires 'accumulate_read_write' to be enabled for wasm builds.
+albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", features = ["accumulate_read_write"], version = "0.0.1-beta.0" }
 web-sys = { version = "0.3.60", features = [
     "Document",
     "Navigator",
