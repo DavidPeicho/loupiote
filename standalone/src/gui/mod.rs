@@ -9,6 +9,15 @@ pub struct Windows {
     pub performance_info_window: windows::PerformanceInfoWindow,
 }
 
+pub struct GUIContext<'a> {
+    pub platform: &'a crate::Plaftorm,
+    pub executor: &'a crate::Spawner<'static>,
+    pub event_loop_proxy: &'a crate::EventLoopProxy,
+    pub renderer: &'a mut crate::Renderer,
+    pub surface_config: &'a wgpu::SurfaceConfiguration,
+    pub settings: &'a mut crate::Settings,
+}
+
 pub struct GUI {
     platform: egui_winit::State,
     context: egui::Context,
@@ -41,7 +50,10 @@ impl GUI {
             error_window: None,
             windows: Windows {
                 scene_info_window: windows::SceneInfoWindow::new(),
-                performance_info_window: windows::PerformanceInfoWindow::new(),
+                performance_info_window: windows::PerformanceInfoWindow {
+                    open: true,
+                    ..Default::default()
+                },
             },
         }
     }
@@ -79,29 +91,25 @@ impl GUI {
         self.captured
     }
 
-    pub fn render(
+    pub fn render<'a, 'b>(
         &mut self,
-        settings: &mut crate::Settings,
-        platform: &crate::Plaftorm,
-        executor: &crate::Spawner,
-        event_loop_proxy: &crate::EventLoopProxy,
-        surface_config: &wgpu::SurfaceConfiguration,
         encoder: &mut wgpu::CommandEncoder,
+        context: &mut GUIContext,
         view: &wgpu::TextureView,
     ) -> Vec<wgpu::CommandBuffer> {
         self.context
-            .begin_frame(self.platform.take_egui_input(&platform.window));
+            .begin_frame(self.platform.take_egui_input(&context.platform.window));
 
         let ctx = &self.context;
 
         let windows = &mut self.windows;
-        render_menu_bar(ctx, windows, settings, platform, executor, event_loop_proxy);
+        render_menu_bar(ctx, context, windows);
         windows.scene_info_window.render(ctx);
-        windows.performance_info_window.render(ctx);
+        windows.performance_info_window.render(&context, ctx);
 
-        let pixels_per_point = platform.window.scale_factor() as f32;
+        let pixels_per_point = context.platform.window.scale_factor() as f32;
         let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
-            size_in_pixels: [surface_config.width, surface_config.height],
+            size_in_pixels: [context.surface_config.width, context.surface_config.height],
             pixels_per_point,
         };
 
@@ -123,15 +131,15 @@ impl GUI {
         let user_cmd_bufs = {
             for (id, image_delta) in &textures_delta.set {
                 self.renderer.update_texture(
-                    &platform.device.inner(),
-                    &platform.queue,
+                    &context.platform.device.inner(),
+                    &context.platform.queue,
                     *id,
                     image_delta,
                 );
             }
             self.renderer.update_buffers(
-                &platform.device.inner(),
-                &platform.queue,
+                &context.platform.device.inner(),
+                &context.platform.queue,
                 encoder,
                 &paint_jobs,
                 &screen_descriptor,
@@ -170,18 +178,11 @@ impl GUI {
     }
 }
 
-fn render_menu_bar(
-    context: &egui::Context,
-    windows: &mut Windows,
-    settings: &mut crate::Settings,
-    platform: &crate::Plaftorm,
-    executor: &crate::Spawner,
-    event_loop_proxy: &crate::EventLoopProxy,
-) {
+fn render_menu_bar(egui_ctx: &egui::Context, context: &mut GUIContext, windows: &mut Windows) {
     use egui::*;
-    TopBottomPanel::top("menu_bar").show(context, |ui| {
+    TopBottomPanel::top("menu_bar").show(egui_ctx, |ui| {
         menu::bar(ui, |ui| {
-            render_file_menu(ui, platform, executor, event_loop_proxy);
+            render_file_menu(ui, context);
             ui.menu_button("Windows", |ui| {
                 if ui.button("Scene Information").clicked() {
                     windows.scene_info_window.open = true;
@@ -192,27 +193,22 @@ fn render_menu_bar(
                     ui.close_menu();
                 }
             });
-            toolbar::render_toolbar_gui(ui, settings);
-            render_screenshot_menu(ui, platform, executor, event_loop_proxy);
+            toolbar::render_toolbar_gui(ui, context.settings);
+            render_screenshot_menu(ui, context);
         });
     });
 }
 
-fn render_file_menu(
-    ui: &mut egui::Ui,
-    platform: &crate::Plaftorm,
-    executor: &crate::Spawner,
-    event_loop_proxy: &crate::EventLoopProxy,
-) {
+fn render_file_menu(ui: &mut egui::Ui, context: &GUIContext) {
     ui.menu_button("File", |ui| {
         if ui.button("Load").clicked() {
             ui.close_menu();
 
             let dialog = rfd::AsyncFileDialog::new()
-                .set_parent(&platform.window)
+                .set_parent(&context.platform.window)
                 .pick_file();
-            let event_loop_proxy = event_loop_proxy.clone();
-            executor.spawn_local(async move {
+            let event_loop_proxy = context.event_loop_proxy.clone();
+            context.executor.spawn_local(async move {
                 let handle = dialog.await;
                 if let Some(file) = handle {
                     let data = file.read().await;
@@ -229,21 +225,16 @@ fn render_file_menu(
     });
 }
 
-fn render_screenshot_menu(
-    ui: &mut egui::Ui,
-    platform: &crate::Plaftorm,
-    executor: &crate::Spawner,
-    event_loop_proxy: &crate::EventLoopProxy,
-) {
+fn render_screenshot_menu(ui: &mut egui::Ui, context: &GUIContext) {
     // @todo: support wasm.
     #[cfg(not(target_arch = "wasm32"))]
     if ui.button("📷").clicked() {
         let dialog = rfd::AsyncFileDialog::new()
             .add_filter("image", &["png", "jpg"])
-            .set_parent(&platform.window)
+            .set_parent(&context.platform.window)
             .save_file();
-        let event_loop_proxy = event_loop_proxy.clone();
-        executor.spawn_local(async move {
+        let event_loop_proxy = context.event_loop_proxy.clone();
+        context.executor.spawn_local(async move {
             let handle = dialog.await;
             if let Some(file) = handle {
                 // @todo: support wasm.

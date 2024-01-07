@@ -32,6 +32,8 @@ mod gui;
 mod camera;
 use camera::CameraMoveCommand;
 
+use crate::gui::GUIContext;
+
 pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftorm)) {
     let event_loop_proxy = event_loop.create_proxy();
 
@@ -248,6 +250,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let renderer = &mut app_context.renderer;
+                renderer.queries.start_frame();
+
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 if !app_context.settings.accumulate || !camera_controller.is_static() {
                     renderer.reset_accumulation(&app_context.platform.queue);
@@ -268,19 +272,19 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                     },
                 );
                 // Render GUI.
-                app_context
-                    .gui
-                    .windows
-                    .performance_info_window
-                    .set_global_performance(delta);
+                let performance = &mut app_context.gui.windows.performance_info_window;
+                performance.set_global_performance(delta);
 
-                let gui_cmd_buffers = app_context.gui.render(
-                    &mut app_context.settings,
-                    &app_context.platform,
-                    &app_context.executor,
-                    &app_context.event_loop_proxy,
-                    &surface_config,
+                let gui_cmd_buffers: Vec<wgpu::CommandBuffer> = app_context.gui.render(
                     &mut encoder_gui,
+                    &mut GUIContext {
+                        platform: &app_context.platform,
+                        executor: &app_context.executor,
+                        event_loop_proxy: &app_context.event_loop_proxy,
+                        renderer: renderer,
+                        surface_config: &surface_config,
+                        settings: &mut app_context.settings,
+                    },
                     &view,
                 );
 
@@ -293,6 +297,9 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                 );
 
                 frame.present();
+
+                let timestamp_period = app_context.platform.queue.get_timestamp_period();
+                renderer.queries.end_frame(timestamp_period);
             }
             _ => {}
         }
@@ -340,23 +347,34 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
         .await
         .expect("No suitable GPU adapters found on the system!");
 
-    let optional_features: wgpu::Features = wgpu::Features::default();
     let required_features: wgpu::Features =
         wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
-    let adapter_features: wgpu::Features = wgpu::Features::default();
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
         max_storage_buffer_binding_size: 256 * 1024 * 1024,
         ..wgpu::Limits::default()
     };
-    let trace_dir = std::env::var("WGPU_TRACE");
+    let trace_dir: Result<String, std::env::VarError> = std::env::var("WGPU_TRACE");
+
+    let features = adapter.features();
+    if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+        log!("Adapter supports timestamp queries.");
+    } else {
+        log!("Adapter does not support timestamp queries.");
+    }
+    let timestamps_inside_passes = features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES);
+    if timestamps_inside_passes {
+        log!("Adapter supports timestamp queries within passes.");
+    } else {
+        log!("Adapter does not support timestamp queries within passes.");
+    }
 
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                features: (optional_features & adapter_features) | required_features,
+                features: features | required_features,
                 limits: needed_limits,
             },
             trace_dir.ok().as_ref().map(std::path::Path::new),

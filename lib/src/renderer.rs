@@ -18,7 +18,7 @@ struct RenderTargets {
 
 impl RenderTargets {
     pub fn new(device: &Device, size: (u32, u32)) -> Self {
-        let render_target = device.create_texture(&wgpu::TextureDescriptor {
+        let render_target: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Main Render Target"),
             size: wgpu::Extent3d {
                 width: size.0,
@@ -193,6 +193,8 @@ pub struct Renderer {
 
     pub downsample_factor: f32,
     pub accumulate: bool,
+
+    pub queries: gpu::Queries,
 }
 
 impl Renderer {
@@ -259,6 +261,9 @@ impl Renderer {
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
             size,
+
+            queries: gpu::Queries::new(device, 8),
+
             downsample_factor,
             accumulate: false,
         }
@@ -343,9 +348,12 @@ impl Renderer {
         // Step 1:
         //
         // Generate a ray struct for every fragment.
+
+        self.queries.start("ray generation", encoder);
         self.passes
             .rays
             .dispatch(encoder, &bindgroups.generate_ray_pass, dispatch_size);
+        self.queries.end(encoder);
 
         // Step 2:
         //
@@ -356,12 +364,17 @@ impl Renderer {
             self.global_uniforms.bounces = i;
             self.global_uniforms_buffer
                 .update(&queue, &[self.global_uniforms]);
+
+            self.queries.start(format!("intersection {}", i), encoder);
             self.passes.intersection.dispatch(
                 encoder,
                 &geometry_bindgroup,
                 &bindgroups.intersection_pass,
                 dispatch_size,
             );
+            self.queries.end(encoder);
+
+            self.queries.start(format!("shading {}", i), encoder);
             self.passes.shading.dispatch(
                 encoder,
                 geometry_bindgroup,
@@ -369,6 +382,7 @@ impl Renderer {
                 &bindgroups.shading_pass,
                 dispatch_size,
             );
+            self.queries.end(encoder);
         }
 
         // Accumulation
@@ -388,6 +402,8 @@ impl Renderer {
         if self.accumulate {
             self.global_uniforms.frame_count += 1;
         }
+
+        self.queries.finish(encoder);
     }
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
