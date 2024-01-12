@@ -240,6 +240,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                 let view = frame
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
+                let timestamp_period = app_context.platform.queue.get_timestamp_period();
 
                 let (camera_right, camera_up) = camera_controller.update(delta);
 
@@ -250,7 +251,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let renderer = &mut app_context.renderer;
-                renderer.queries.start_frame();
+                renderer.queries.start_frame(timestamp_period);
 
                 renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                 if !app_context.settings.accumulate || !camera_controller.is_static() {
@@ -298,7 +299,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
                 frame.present();
 
-                let timestamp_period = app_context.platform.queue.get_timestamp_period();
                 renderer.queries.end_frame(timestamp_period);
             }
             _ => {}

@@ -18,7 +18,6 @@ impl PerformanceInfoWindow {
         let fps = &self.fps;
         let timestamp_values = context.renderer.queries.values();
         let timestamp_labels = context.renderer.queries.labels();
-        let period = context.platform.queue.get_timestamp_period();
         egui::Window::new("Performance Info")
             .resizable(true)
             .open(&mut self.open)

@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use albedo_backend::gpu;
+use albedo_backend::gpu::{self, QueriesOptions};
 
 use albedo_rtx::passes;
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
@@ -262,7 +262,7 @@ impl Renderer {
             downsample_bindgroups: None,
             size,
 
-            queries: gpu::Queries::new(device, 8),
+            queries: gpu::Queries::new(device, QueriesOptions::new(10)),
 
             downsample_factor,
             accumulate: false,
