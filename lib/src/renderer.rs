@@ -403,7 +403,7 @@ impl Renderer {
             self.global_uniforms.frame_count += 1;
         }
 
-        self.queries.finish(encoder);
+        self.queries.resolve(encoder);
     }
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
