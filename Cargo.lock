@@ -50,6 +50,7 @@ name = "albedo_backend"
 version = "0.0.1-beta.0"
 dependencies = [
  "bytemuck",
+ "pas",
  "wgpu",
 ]
 
@@ -61,6 +62,7 @@ dependencies = [
  "albedo_math",
  "bytemuck",
  "glam",
+ "pas",
 ]
 
 [[package]]
@@ -75,6 +77,7 @@ dependencies = [
  "glam",
  "gltf",
  "image",
+ "pas",
  "wgpu",
 ]
 
@@ -1777,6 +1780,15 @@ dependencies = [
  "redox_syscall 0.4.1",
  "smallvec",
  "windows-targets 0.48.5",
+]
+
+[[package]]
+name = "pas"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "342bfeb293f90dcd8c6a21697d0ac479d72e3288fdd66890e2a95b995e27af34"
+dependencies = [
+ "bytemuck",
 ]
 
 [[package]]

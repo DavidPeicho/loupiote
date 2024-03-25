@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 image = { workspace = true }
 glam = { workspace = true }
 wgpu = { workspace = true }
+pas = { workspace = true }
 albedo_backend = { path = "../../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
 albedo_bvh = { path = "../../albedo-engine/crates/albedo_bvh", version = "0.0.1-beta.0" }
 albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }

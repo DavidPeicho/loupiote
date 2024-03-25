@@ -1,8 +1,8 @@
-use albedo_backend::data::Slice;
 use albedo_backend::mesh::IndexDataSlice;
 use albedo_bvh::Mesh;
 use albedo_rtx::texture;
 use albedo_rtx::uniforms;
+use pas::Slice;
 
 use gltf::{self, image};
 
@@ -22,11 +22,11 @@ pub struct ProxyMesh {
 }
 impl Mesh for ProxyMesh {
     fn indices(&self) -> Option<IndexDataSlice> {
-        Some(IndexDataSlice::U32(Slice::from_slice(&self.indices)))
+        Some(IndexDataSlice::U32(Slice::native(&self.indices)))
     }
 
     fn positions(&self) -> Option<Slice<[f32; 3]>> {
-        Some(Slice::from_slice(&self.positions))
+        Some(Slice::native(&self.positions))
     }
 }
 
