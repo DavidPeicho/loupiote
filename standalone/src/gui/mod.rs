@@ -20,7 +20,6 @@ pub struct GUIContext<'a> {
 
 pub struct GUI {
     platform: egui_winit::State,
-    context: egui::Context,
     renderer: egui_wgpu::Renderer,
     error_window: Option<windows::ErrorWindow>,
     captured: bool,
@@ -34,9 +33,9 @@ impl GUI {
         surface_config: &wgpu::SurfaceConfiguration,
     ) -> Self {
         // Create the egui context
-        let context = egui::Context::default();
         // Create the winit/egui integration.
         let platform = egui_winit::State::new(
+            egui::Context::default(),
             egui::ViewportId::default(),
             &window,
             Some(window.scale_factor() as f32),
@@ -44,7 +43,6 @@ impl GUI {
         );
         GUI {
             platform,
-            context,
             renderer: egui_wgpu::Renderer::new(device, surface_config.format, None, 1),
             captured: false,
             error_window: None,
@@ -64,7 +62,11 @@ impl GUI {
 
     pub fn resize(&mut self, _: f32) {}
 
-    pub fn handle_event<T>(&mut self, winit_event: &winit::event::Event<T>) -> bool {
+    pub fn handle_event<T>(
+        &mut self,
+        window: &winit::window::Window,
+        winit_event: &winit::event::Event<T>,
+    ) -> bool {
         use winit::event::*;
         match winit_event {
             Event::WindowEvent { event, .. } => {
@@ -77,12 +79,11 @@ impl GUI {
                     }
                     _ => (),
                 }
-                let consumed = self
-                    .platform
-                    .on_window_event(&self.context, &event)
-                    .consumed;
+                let consumed = self.platform.on_window_event(window, &event).consumed;
                 self.captured = match event {
-                    WindowEvent::CursorMoved { .. } => self.context.wants_pointer_input(),
+                    WindowEvent::CursorMoved { .. } => {
+                        self.platform.egui_ctx().wants_pointer_input()
+                    }
                     _ => consumed,
                 };
             }
@@ -97,10 +98,10 @@ impl GUI {
         context: &mut GUIContext,
         view: &wgpu::TextureView,
     ) -> Vec<wgpu::CommandBuffer> {
-        self.context
-            .begin_frame(self.platform.take_egui_input(&context.platform.window));
+        let inputs = self.platform.take_egui_input(&context.platform.window);
+        self.platform.egui_ctx().begin_frame(inputs);
 
-        let ctx = &self.context;
+        let ctx = self.platform.egui_ctx();
 
         let windows = &mut self.windows;
         render_menu_bar(ctx, context, windows);
@@ -108,7 +109,7 @@ impl GUI {
         windows.performance_info_window.render(&context, ctx);
 
         let pixels_per_point = context.platform.window.scale_factor() as f32;
-        let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [context.surface_config.width, context.surface_config.height],
             pixels_per_point,
         };
@@ -117,12 +118,12 @@ impl GUI {
             shapes,
             textures_delta,
             ..
-        } = self.context.end_frame();
+        } = ctx.end_frame();
 
-        let paint_jobs = self.context.tessellate(shapes, pixels_per_point);
+        let paint_jobs = ctx.tessellate(shapes, pixels_per_point);
 
         if let Some(error_window) = &mut self.error_window {
-            error_window.render(&self.context);
+            error_window.render(ctx);
             if !error_window.open {
                 self.error_window = None;
             }
@@ -205,7 +206,7 @@ fn render_file_menu(ui: &mut egui::Ui, context: &GUIContext) {
             ui.close_menu();
 
             let dialog = rfd::AsyncFileDialog::new()
-                .set_parent(&context.platform.window)
+                .set_parent(context.platform.window.as_ref())
                 .pick_file();
             let event_loop_proxy = context.event_loop_proxy.clone();
             context.executor.spawn_local(async move {
