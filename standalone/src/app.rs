@@ -1,4 +1,4 @@
-use std::path;
+use std::{path, sync::Arc};
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 
@@ -10,8 +10,8 @@ pub struct Plaftorm {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
     pub device: Device,
-    pub window: winit::window::Window,
-    pub surface: wgpu::Surface,
+    pub window: Arc<winit::window::Window>,
+    pub surface: wgpu::Surface<'static>,
     pub queue: wgpu::Queue,
 }
 

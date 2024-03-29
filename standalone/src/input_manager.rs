@@ -1,5 +1,8 @@
 use crate::commands::EditorCommand;
-use winit::event::{ElementState, VirtualKeyCode};
+use winit::{
+    event::ElementState,
+    keyboard::{Key, NamedKey},
+};
 
 pub struct InputManager {}
 
@@ -10,12 +13,12 @@ impl InputManager {
 
     pub fn process_keyboard_input(
         &self,
-        keycode: &VirtualKeyCode,
+        keycode: &Key,
         state: &ElementState,
     ) -> Option<EditorCommand> {
         // @todo: Mapping should be performed using a config file.
         match (keycode, state) {
-            (VirtualKeyCode::Space, ElementState::Pressed) => {
+            (Key::Named(NamedKey::Space), ElementState::Pressed) => {
                 Some(EditorCommand::ToggleAccumulation)
             }
             _ => None,

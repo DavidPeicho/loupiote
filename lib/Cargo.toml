@@ -13,13 +13,13 @@ image = { workspace = true }
 glam = { workspace = true }
 wgpu = { workspace = true }
 pas = { workspace = true }
-albedo_backend = { path = "../../albedo-engine/crates/albedo_backend", version = "0.0.1-beta.0" }
-albedo_bvh = { path = "../../albedo-engine/crates/albedo_bvh", version = "0.0.1-beta.0" }
-albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", version = "0.0.1-beta.0" }
+albedo_backend = { path = "../../albedo/crates/albedo_backend", version = "0.0.1-beta.0" }
+albedo_bvh = { path = "../../albedo/crates/albedo_bvh", version = "0.0.1-beta.0" }
+albedo_rtx = { path = "../../albedo/crates/albedo_rtx", version = "0.0.1-beta.0" }
 bytemuck = "1.7.2"
 futures-intrusive = "0.4"
 gltf = "1.0.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # albedo_rtx requires 'accumulate_read_write' to be enabled for wasm builds.
-albedo_rtx = { path = "../../albedo-engine/crates/albedo_rtx", features = ["accumulate_read_write"], version = "0.0.1-beta.0" }
+albedo_rtx = { path = "../../albedo/crates/albedo_rtx", features = ["accumulate_read_write"], version = "0.0.1-beta.0" }

@@ -9,7 +9,7 @@ default-members = ["standalone"]
 [workspace.dependencies]
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
 glam = "0.20.2"
-wgpu = "0.18.0"
+wgpu = "0.19.0"
 pas = "0.1.0"
 
 [profile.dev]
