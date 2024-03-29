@@ -107,6 +107,11 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     app_context.resize(init_size.width, init_size.height);
 
+    app_context.load_blue_noise("./assets/noise_rgb.png");
+    app_context
+        .renderer
+        .use_noise_texture(&app_context.platform.queue, true);
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         app_context.load_env_path("./assets/uffizi-large.hdr");

@@ -2,8 +2,8 @@ use std::convert::TryInto;
 
 use albedo_backend::gpu::{self, QueriesOptions};
 
-use albedo_rtx::passes;
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
+use albedo_rtx::{passes, RadianceParameters};
 
 use crate::device::Device;
 use crate::errors::Error;
@@ -171,6 +171,7 @@ pub struct Passes {
 
 pub struct Renderer {
     render_targets: RenderTargets,
+
     ray_buffer: gpu::Buffer<Ray>,
     intersection_buffer: gpu::Buffer<Intersection>,
 
@@ -178,6 +179,7 @@ pub struct Renderer {
     camera_uniforms: gpu::Buffer<Camera>,
     global_uniforms: PerDrawUniforms,
     global_uniforms_buffer: gpu::Buffer<PerDrawUniforms>,
+    radiance_parameters_buffer: gpu::Buffer<RadianceParameters>,
 
     pub passes: Passes,
 
@@ -218,6 +220,7 @@ impl Renderer {
 
         Self {
             render_targets,
+
             ray_buffer: gpu::Buffer::new_storage(
                 &device,
                 pixel_count as u64,
@@ -235,6 +238,7 @@ impl Renderer {
                 ..Default::default()
             },
             global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
+            radiance_parameters_buffer: gpu::Buffer::new_uniform(device, 1, None),
             passes: Passes {
                 rays: passes::RayPass::new(device, None),
                 intersection: passes::IntersectorPass::new(
@@ -430,6 +434,60 @@ impl Renderer {
             .update(&queue, &[self.global_uniforms]);
     }
 
+    pub fn upload_noise_texture(
+        &mut self,
+        device: &Device,
+        queue: &wgpu::Queue,
+        data: &[u8],
+        width: u32,
+        height: u32,
+        bytes_per_row: u32,
+    ) {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Blue Noise Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+            },
+            data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(height),
+            },
+            size,
+        );
+
+        let view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+    }
+
+    pub fn use_noise_texture(&mut self, queue: &wgpu::Queue, flag: bool) {
+        self.radiance_parameters_buffer.update(
+            queue,
+            &[RadianceParameters {
+                use_noise_texture: flag as u32,
+            }],
+        )
+    }
+
     pub fn get_size(&self) -> (u32, u32) {
         self.size
     }
@@ -482,6 +540,8 @@ impl Renderer {
             texture_atlas_view,
             device.sampler_nearest(),
             device.sampler_linear(),
+            device.default_textures().filterable_2d(),
+            self.radiance_parameters_buffer.as_uniform_slice().unwrap(),
         ));
         self.global_uniforms.frame_count = 1;
     }
