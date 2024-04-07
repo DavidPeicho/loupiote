@@ -193,7 +193,7 @@ pub struct Renderer {
 
     pub downsample_factor: f32,
     pub accumulate: bool,
-    // pub queries: gpu::Queries,
+    pub queries: gpu::Queries,
 }
 
 impl Renderer {
@@ -261,7 +261,7 @@ impl Renderer {
             downsample_bindgroups: None,
             size,
 
-            // queries: gpu::Queries::new(device, QueriesOptions::new(10)),
+            queries: gpu::Queries::new(device, QueriesOptions::new(10)),
             downsample_factor,
             accumulate: false,
         }
@@ -347,11 +347,11 @@ impl Renderer {
         //
         // Generate a ray struct for every fragment.
 
-        // self.queries.start("ray generation", encoder);
+        self.queries.start("ray generation", encoder);
         self.passes
             .rays
             .dispatch(encoder, &bindgroups.generate_ray_pass, dispatch_size);
-        // self.queries.end(encoder);
+        self.queries.end(encoder);
 
         // Step 2:
         //
@@ -363,16 +363,16 @@ impl Renderer {
             self.global_uniforms_buffer
                 .update(&queue, &[self.global_uniforms]);
 
-            // self.queries.start(format!("intersection {}", i), encoder);
+            self.queries.start(format!("intersection {}", i), encoder);
             self.passes.intersection.dispatch(
                 encoder,
                 &geometry_bindgroup,
                 &bindgroups.intersection_pass,
                 dispatch_size,
             );
-            // self.queries.end(encoder);
+            self.queries.end(encoder);
 
-            // self.queries.start(format!("shading {}", i), encoder);
+            self.queries.start(format!("shading {}", i), encoder);
             self.passes.shading.dispatch(
                 encoder,
                 geometry_bindgroup,
@@ -380,7 +380,7 @@ impl Renderer {
                 &bindgroups.shading_pass,
                 dispatch_size,
             );
-            // self.queries.end(encoder);
+            self.queries.end(encoder);
         }
 
         // Accumulation
@@ -401,7 +401,7 @@ impl Renderer {
             self.global_uniforms.frame_count += 1;
         }
 
-        // self.queries.resolve(encoder);
+        self.queries.resolve(encoder);
     }
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {

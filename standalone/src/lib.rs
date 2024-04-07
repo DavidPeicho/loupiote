@@ -64,14 +64,13 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         present_mode: wgpu::PresentMode::Immediate,
         view_formats: vec![],
     };
+    surface_config.width = init_size.width;
+    surface_config.height = init_size.height;
+    platform
+        .surface
+        .configure(platform.device.inner(), &surface_config);
 
     let mut gui = gui::GUI::new(&platform.window, &platform.device.inner(), &surface_config);
-
-    let surface = platform
-        .instance
-        .create_surface(platform.window.clone())
-        .unwrap();
-    surface.configure(&platform.device.inner(), &surface_config);
 
     let mut camera_controller = camera::CameraController::from_origin_dir(
         glam::Vec3::new(0.0, 0.0, 5.0),
@@ -105,9 +104,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         gui,
         settings: Settings::new(),
     };
-    surface_config.width = init_size.width;
-    surface_config.height = init_size.height;
-    surface.configure(app_context.platform.device.inner(), &surface_config);
+
     app_context.resize(init_size.width, init_size.height);
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -153,7 +150,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                     let height = size.height.max(1);
                     surface_config.width = width;
                     surface_config.height = height;
-                    surface.configure(app_context.platform.device.inner(), &surface_config);
+                    app_context
+                        .platform
+                        .surface
+                        .configure(app_context.platform.device.inner(), &surface_config);
                     app_context.resize(width, height);
                 }
 
@@ -237,7 +237,9 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                         };
                         last_time = now;
 
-                        let frame = surface
+                        let frame = app_context
+                            .platform
+                            .surface
                             .get_current_texture()
                             .expect("Failed to acquire next swap chain texture");
                         let view = frame
@@ -253,7 +255,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                             );
 
                         let renderer = &mut app_context.renderer;
-                        // renderer.queries.start_frame(timestamp_period);
+                        renderer.queries.start_frame(timestamp_period);
 
                         renderer.update_camera(camera_controller.origin, camera_right, camera_up);
                         if !app_context.settings.accumulate || !camera_controller.is_static() {
@@ -302,7 +304,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
                         frame.present();
 
-                        // renderer.queries.end_frame(timestamp_period);
+                        renderer.queries.end_frame(timestamp_period);
 
                         app_context.platform.window.request_redraw();
                     }
@@ -344,17 +346,17 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
             .expect("couldn't append canvas to document body");
     }
 
-    let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
-    let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
+    let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        dx12_shader_compiler,
-        gles_minor_version,
+        backends,
         flags: wgpu::InstanceFlags::from_build_config().with_env(),
+        dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+        gles_minor_version: wgpu::Gles3MinorVersion::default(),
     });
 
     let window = Arc::new(window);
-    let surface = unsafe { instance.create_surface(window.clone()) }.unwrap();
+    let surface = instance.create_surface(window.clone()).unwrap();
+
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -373,6 +375,12 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
         ..wgpu::Limits::default()
     };
     let trace_dir: Result<String, std::env::VarError> = std::env::var("WGPU_TRACE");
+
+    println!(
+        "Adater name: {} / Backend: {:?}",
+        adapter.get_info().name,
+        adapter.get_info().backend
+    );
 
     let features = adapter.features();
     if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
