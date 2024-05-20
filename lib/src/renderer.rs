@@ -191,6 +191,9 @@ pub struct Renderer {
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
 
+    // Textures
+    texture_blue_noise: Option<wgpu::TextureView>,
+
     size: (u32, u32),
 
     pub downsample_factor: f32,
@@ -263,6 +266,9 @@ impl Renderer {
 
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
+
+            texture_blue_noise: None,
+
             size,
 
             queries: gpu::Queries::new(device, QueriesOptions::new(10)),
@@ -295,6 +301,8 @@ impl Renderer {
             }),
         );
         self.intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
+        // TODO: Only resize if bigger.
+        self.render_targets = RenderTargets::new(device, self.size);
         self.set_resources(device, scene_resources, probe);
     }
 
@@ -476,7 +484,7 @@ impl Renderer {
             size,
         );
 
-        let view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.texture_blue_noise = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
     }
 
     pub fn use_noise_texture(&mut self, queue: &wgpu::Queue, flag: bool) {
@@ -519,6 +527,12 @@ impl Renderer {
             Some(p) => &p.view,
             _ => device.default_textures().filterable_2d(),
         };
+        // TODO: It's now required to order the set the blue noise texture first. This is error
+        // prone and not really worth.
+        let noise_texture = match &self.texture_blue_noise {
+            Some(p) => &p,
+            _ => device.default_textures().filterable_2d(),
+        };
 
         self.fullscreen_bindgroups =
             Some(self.create_bind_groups(device, scene_resources, self.size));
@@ -540,7 +554,7 @@ impl Renderer {
             texture_atlas_view,
             device.sampler_nearest(),
             device.sampler_linear(),
-            device.default_textures().filterable_2d(),
+            noise_texture,
             self.radiance_parameters_buffer.as_uniform_slice().unwrap(),
         ));
         self.global_uniforms.frame_count = 1;

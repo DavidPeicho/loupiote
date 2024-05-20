@@ -266,6 +266,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                         if !app_context.settings.accumulate || !camera_controller.is_static() {
                             renderer.reset_accumulation(&app_context.platform.queue);
                         }
+
+                        // TODO: Can be done only on change
+                        renderer.use_noise_texture(&app_context.platform.queue, app_context.settings.use_blue_noise);
+
                         // Debug the lightmapper. We need to reset the frame
                         // renderer.reset_accumulation(&app_context.platform.queue);
                         // renderer.lightmap(
