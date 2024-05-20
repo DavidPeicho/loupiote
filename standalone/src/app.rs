@@ -1,6 +1,7 @@
 use std::{path, sync::Arc};
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
+use image::GenericImageView;
 
 use crate::{
     commands, errors::Error, event::LoadEvent, gui::GUI, logger::log, Event, Settings, Spawner,
@@ -90,6 +91,24 @@ impl ApplicationContext {
             renderer_size.1,
             renderer_down_size.0,
             renderer_down_size.1
+        );
+    }
+
+    pub fn load_blue_noise<P: AsRef<path::Path>>(&mut self, path: P) {
+        // @todo: Remove unwrap.
+        let img = image::io::Reader::open(path).unwrap().decode().unwrap();
+
+        let (width, height) = img.dimensions();
+        let bytes_per_row = width * img.color().bytes_per_pixel() as u32;
+
+        let bytes = img.into_bytes();
+        self.renderer.upload_noise_texture(
+            &self.platform.device,
+            &self.platform.queue,
+            &bytes,
+            width,
+            height,
+            bytes_per_row,
         );
     }
 
