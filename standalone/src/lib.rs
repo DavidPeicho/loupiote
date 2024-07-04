@@ -120,6 +120,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
             .unwrap();
     }
 
+    app_context.renderer.set_blit_mode(&app_context.platform.device, BlitMode::GBuffer);
+
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
 
