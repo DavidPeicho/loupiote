@@ -383,6 +383,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
         max_storage_buffer_binding_size: 256 * 1024 * 1024,
+        max_push_constant_size: 16,
         ..wgpu::Limits::default()
     };
     let trace_dir: Result<String, std::env::VarError> = std::env::var("WGPU_TRACE");

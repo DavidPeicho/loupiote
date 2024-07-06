@@ -488,8 +488,13 @@ impl Renderer {
     }
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        let mut size: (u32, u32) = self.size;
+        if !self.accumulate {
+            size = self.get_downsampled_size();
+        }
+
         if let Some(bindgroup) = &self.debug_blit_bindgroup {
-            self.passes.blit_texture.draw(encoder, &view, bindgroup);
+            self.passes.blit_texture.draw(encoder, &view, bindgroup, &size);
             return;
         }
         let bindgroups: &BindGroups = if self.accumulate {
