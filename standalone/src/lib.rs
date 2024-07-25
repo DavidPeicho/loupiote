@@ -105,6 +105,10 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         settings: Settings::new(),
     };
 
+    // DEBUG
+    app_context.settings.blit_mode = BlitMode::MotionVector;
+    // END DEBUG
+
     app_context.resize(init_size.width, init_size.height);
 
     app_context.load_blue_noise("./assets/noise_rgb.png");
@@ -119,8 +123,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
             .load_file_path("./assets/DamagedHelmet.glb")
             .unwrap();
     }
-
-    app_context.renderer.set_blit_mode(&app_context.platform.device, BlitMode::GBuffer);
 
     #[cfg(not(target_arch = "wasm32"))]
     let mut last_time = std::time::Instant::now();
@@ -271,6 +273,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
                         // TODO: Can be done only on change
                         renderer.use_noise_texture(&app_context.platform.queue, app_context.settings.use_blue_noise);
+                        renderer.set_blit_mode(&app_context.platform.device, app_context.settings.blit_mode);
 
                         // Debug the lightmapper. We need to reset the frame
                         // renderer.reset_accumulation(&app_context.platform.queue);
@@ -383,7 +386,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
     let needed_limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
         max_storage_buffer_binding_size: 256 * 1024 * 1024,
-        max_push_constant_size: 16,
+        max_push_constant_size: 128,
         ..wgpu::Limits::default()
     };
     let trace_dir: Result<String, std::env::VarError> = std::env::var("WGPU_TRACE");

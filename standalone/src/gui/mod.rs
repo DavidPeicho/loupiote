@@ -49,7 +49,7 @@ impl GUI {
             windows: Windows {
                 scene_info_window: windows::SceneInfoWindow::new(),
                 performance_info_window: windows::PerformanceInfoWindow {
-                    open: true,
+                    open: false,
                     ..Default::default()
                 },
             },

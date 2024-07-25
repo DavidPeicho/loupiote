@@ -15,7 +15,6 @@ struct RenderTargets {
     main: wgpu::TextureView,
     #[cfg(target_arch = "wasm32")]
     second: wgpu::TextureView,
-    gbuffer: wgpu::TextureView,
 }
 
 impl RenderTargets {
@@ -51,27 +50,10 @@ impl RenderTargets {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
-        let gbuffer: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("GBuffer Render Target"),
-            size: wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
         Self {
             main: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
             #[cfg(target_arch = "wasm32")]
             second: render_target2.create_view(&wgpu::TextureViewDescriptor::default()),
-            gbuffer: gbuffer.create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
@@ -87,7 +69,6 @@ struct BindGroups {
     #[cfg(target_arch = "wasm32")]
     blit_pass2: wgpu::BindGroup,
     lightmap_pass: wgpu::BindGroup,
-    gbuffer_pass: wgpu::BindGroup,
 }
 
 impl BindGroups {
@@ -106,7 +87,6 @@ impl BindGroups {
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
         lightmap_pass: &passes::LightmapPass,
-        gbuffer_pass: &passes::GBufferPass,
     ) -> Self {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
@@ -176,8 +156,7 @@ impl BindGroups {
                 &scene_resources.index_buffer,
                 &scene_resources.vertex_buffer.inner(),
                 global_uniforms,
-            ),
-            gbuffer_pass: gbuffer_pass.create_frame_bind_groups(device, size, &render_targets.gbuffer, &intersection_buffer, &ray_buffer)
+            )
         }
     }
 }
@@ -189,14 +168,14 @@ pub struct Passes {
     pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
     pub lightmap: passes::LightmapPass,
-    pub gbuffer: passes::GBufferPass,
     pub blit_texture: passes::BlitTexturePass,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BlitMode {
     Pahtrace,
-    GBuffer
+    GBuffer,
+    MotionVector,
 }
 
 pub struct Renderer {
@@ -234,6 +213,8 @@ pub struct Renderer {
     pub downsample_factor: f32,
     pub accumulate: bool,
     pub queries: gpu::Queries,
+
+    prev_model_to_screen: glam::Mat4
 }
 
 impl Renderer {
@@ -256,6 +237,9 @@ impl Renderer {
         let surface_bindgroup_layout = albedo_rtx::RTSurfaceBindGroupLayout::new(device);
         let render_targets = RenderTargets::new(device, size);
 
+        let intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
+        let asvgf = Some(ASVFG::new(device, &size, &geometry_bindgroup_layout, &intersection_buffer));
+
         Self {
             render_targets,
 
@@ -267,7 +251,6 @@ impl Renderer {
                     usage: wgpu::BufferUsages::STORAGE,
                 }),
             ),
-            intersection_buffer: gpu::Buffer::new_storage(device, pixel_count, None),
             camera: Default::default(),
             camera_uniforms: gpu::Buffer::new_uniform(device, 1, None),
             global_uniforms: PerDrawUniforms {
@@ -276,7 +259,9 @@ impl Renderer {
                 ..Default::default()
             },
 
-            asvgf: Some(ASVFG::new()),
+            intersection_buffer,
+
+            asvgf,
 
             global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
             radiance_parameters_buffer: gpu::Buffer::new_uniform(device, 1, None),
@@ -295,7 +280,6 @@ impl Renderer {
                 accumulation: passes::AccumulationPass::new(device, None),
                 blit: passes::BlitPass::new(device, swapchain_format),
                 lightmap: passes::LightmapPass::new(device, swapchain_format),
-                gbuffer: passes::GBufferPass::new(device, &geometry_bindgroup_layout, None),
                 blit_texture: passes::BlitTexturePass::new(device, swapchain_format),
             },
 
@@ -317,6 +301,8 @@ impl Renderer {
             queries: gpu::Queries::new(device, QueriesOptions::new(10)),
             downsample_factor,
             accumulate: false,
+
+            prev_model_to_screen: glam::Mat4::IDENTITY,
         }
     }
 
@@ -347,6 +333,10 @@ impl Renderer {
         // TODO: Only resize if bigger.
         self.render_targets = RenderTargets::new(device, self.size);
         self.set_resources(device, scene_resources, probe);
+
+        if let Some(asvgf) = &mut self.asvgf {
+            asvgf.resize(device, &self.size, &self.intersection_buffer);
+        }
 
         self.set_blit_mode(device, self.mode); // Re-create the bindgroup
     }
@@ -430,8 +420,10 @@ impl Renderer {
         // GBuffer generation
         if let Some(asvgf) = &self.asvgf {
             self.queries.start("gbuffer", encoder);
-            self.passes.gbuffer.dispatch(encoder, &geometry_bindgroup, &bindgroups.gbuffer_pass, dispatch_size);
+            asvgf.passes.gbuffer.dispatch(encoder, &geometry_bindgroup, &asvgf.gbuffer_bindgroup, dispatch_size, &self.prev_model_to_screen);
             self.queries.end(encoder);
+
+            self.atrou_pass();
         }
 
         // Step 2:
@@ -485,6 +477,20 @@ impl Renderer {
         }
 
         self.queries.resolve(encoder);
+
+        self.prev_model_to_screen = {
+            // todo: Use matrix at an early stage.
+            let aspect = self.size.0 as f32 / self.size.1 as f32;
+            let perspective = glam::Mat4::perspective_infinite_lh(self.camera.v_fov, aspect, 0.01);
+
+            let view = {
+                let dir = self.camera.up.cross(self.camera.right).normalize().extend(0.0);
+                let rot = glam::Mat4::from_cols(self.camera.right.extend(0.0), self.camera.up.extend(0.0), dir, glam::Vec4::W);
+                glam::Mat4::from_translation(self.camera.origin) * rot
+            };
+            let inv_view = view.inverse();
+            perspective * inv_view
+        };
     }
 
     pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
@@ -514,15 +520,27 @@ impl Renderer {
         self.passes.blit.draw(encoder, &view, bindgroup);
     }
 
+    pub fn atrou_pass(&self) {
+        // for i in 0..4 {}
+    }
+
     pub fn set_blit_mode(&mut self, device: &Device, mode: BlitMode) {
+        if self.mode == mode { return; }
+
         self.mode = mode;
         self.debug_blit_bindgroup = None;
-        match self.mode {
+
+        let texture = match self.mode {
             BlitMode::GBuffer => {
-                self.debug_blit_bindgroup = Some(self.passes.blit_texture.create_frame_bind_groups(device.inner(), &self.render_targets.gbuffer, device.sampler_nearest()))
+                &self.asvgf.as_ref().unwrap().textures.gbuffer
             },
-            _ => {}
+            BlitMode::MotionVector => {
+                &self.asvgf.as_ref().unwrap().textures.motion
+            },
+            _ => return
         };
+
+        self.debug_blit_bindgroup = Some(self.passes.blit_texture.create_frame_bind_groups(device.inner(), texture, device.sampler_nearest()));
     }
 
     pub fn reset_accumulation(&mut self, queue: &wgpu::Queue) {
@@ -756,8 +774,7 @@ impl Renderer {
             &self.passes.shading,
             &self.passes.accumulation,
             &self.passes.blit,
-            &self.passes.lightmap,
-            &self.passes.gbuffer
+            &self.passes.lightmap
         )
     }
 }
