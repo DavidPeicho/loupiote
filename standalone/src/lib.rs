@@ -106,7 +106,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     };
 
     // DEBUG
-    app_context.settings.blit_mode = BlitMode::MotionVector;
+    app_context.settings.blit_mode = BlitMode::DenoisedPathrace;
     // END DEBUG
 
     app_context.resize(init_size.width, init_size.height);
@@ -273,7 +273,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
                         // TODO: Can be done only on change
                         renderer.use_noise_texture(&app_context.platform.queue, app_context.settings.use_blue_noise);
-                        renderer.set_blit_mode(&app_context.platform.device, app_context.settings.blit_mode);
+                        renderer.set_blit_mode(app_context.settings.blit_mode);
 
                         // Debug the lightmapper. We need to reset the frame
                         // renderer.reset_accumulation(&app_context.platform.queue);
@@ -282,7 +282,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                         //     &app_context.scene_gpu,
                         // );
                         renderer.raytrace(&mut encoder, &app_context.platform.queue);
-                        renderer.blit(&mut encoder, &view);
+                        renderer.blit(&app_context.platform.device, &mut encoder, &view);
                         renderer.accumulate = true;
 
                         let mut encoder_gui =

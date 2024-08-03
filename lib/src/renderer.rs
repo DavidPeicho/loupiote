@@ -174,6 +174,7 @@ pub struct Passes {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BlitMode {
     Pahtrace,
+    DenoisedPathrace,
     GBuffer,
     MotionVector,
 }
@@ -201,7 +202,7 @@ pub struct Renderer {
 
     fullscreen_bindgroups: Option<BindGroups>,
     downsample_bindgroups: Option<BindGroups>,
-    debug_blit_bindgroup: Option<wgpu::BindGroup>,
+    debug_blit_bindgroup: Vec<wgpu::BindGroup>,
 
     // Textures
     texture_blue_noise: Option<wgpu::TextureView>,
@@ -209,12 +210,11 @@ pub struct Renderer {
     size: (u32, u32),
 
     mode: BlitMode,
+    frame_back: bool,
 
     pub downsample_factor: f32,
     pub accumulate: bool,
     pub queries: gpu::Queries,
-
-    prev_model_to_screen: glam::Mat4
 }
 
 impl Renderer {
@@ -238,19 +238,19 @@ impl Renderer {
         let render_targets = RenderTargets::new(device, size);
 
         let intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
-        let asvgf = Some(ASVFG::new(device, &size, &geometry_bindgroup_layout, &intersection_buffer));
+        let ray_buffer = gpu::Buffer::new_storage(
+            &device,
+            pixel_count as u64,
+            Some(gpu::BufferInitDescriptor {
+                label: Some("Ray Buffer"),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        );
+        let asvgf = Some(ASVFG::new(device, &size, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
 
         Self {
             render_targets,
 
-            ray_buffer: gpu::Buffer::new_storage(
-                &device,
-                pixel_count as u64,
-                Some(gpu::BufferInitDescriptor {
-                    label: Some("Ray Buffer"),
-                    usage: wgpu::BufferUsages::STORAGE,
-                }),
-            ),
             camera: Default::default(),
             camera_uniforms: gpu::Buffer::new_uniform(device, 1, None),
             global_uniforms: PerDrawUniforms {
@@ -259,6 +259,7 @@ impl Renderer {
                 ..Default::default()
             },
 
+            ray_buffer,
             intersection_buffer,
 
             asvgf,
@@ -290,19 +291,18 @@ impl Renderer {
 
             fullscreen_bindgroups: None,
             downsample_bindgroups: None,
-            debug_blit_bindgroup: None,
+            debug_blit_bindgroup: Vec::new(),
 
             texture_blue_noise: None,
 
             size,
 
+            frame_back: true,
             mode: BlitMode::Pahtrace,
 
             queries: gpu::Queries::new(device, QueriesOptions::new(10)),
             downsample_factor,
             accumulate: false,
-
-            prev_model_to_screen: glam::Mat4::IDENTITY,
         }
     }
 
@@ -335,10 +335,10 @@ impl Renderer {
         self.set_resources(device, scene_resources, probe);
 
         if let Some(asvgf) = &mut self.asvgf {
-            asvgf.resize(device, &self.size, &self.intersection_buffer);
+            asvgf.resize(device, &self.size, &self.intersection_buffer, &self.ray_buffer);
         }
 
-        self.set_blit_mode(device, self.mode); // Re-create the bindgroup
+        self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
     }
 
     pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
@@ -356,6 +356,7 @@ impl Renderer {
         const STATIC_NUM_BOUNCES: u32 = 3;
         const MOVING_NUM_BOUNCES: u32 = 2;
 
+        self.frame_back = !self.frame_back;
         let mut bindgroups = &self.fullscreen_bindgroups;
 
         // Step 1:
@@ -417,92 +418,118 @@ impl Renderer {
 
         // Step 3:
         //
-        // GBuffer generation
-        if let Some(asvgf) = &self.asvgf {
-            self.queries.start("gbuffer", encoder);
-            asvgf.passes.gbuffer.dispatch(encoder, &geometry_bindgroup, &asvgf.gbuffer_bindgroup, dispatch_size, &self.prev_model_to_screen);
-            self.queries.end(encoder);
+        // Raytrace shade first bounce
+        self.queries.start("shading 0", encoder);
+        self.passes.shading.dispatch(
+            encoder,
+            geometry_bindgroup,
+            surface_bindgroup,
+            &bindgroups.shading_pass,
+            dispatch_size,
+        );
+        self.queries.end(encoder);
 
-            self.atrou_pass();
-        }
-
-        // Step 2:
-        //
-        // Alternate between intersection & shading.
-        for i in 0..nb_bounces {
-            if i > 0 {
-                // @todo: Use dynamic offset
-                self.global_uniforms.seed += 1;
-                self.global_uniforms.bounces = i;
-                self.global_uniforms_buffer
-                    .update(&queue, &[self.global_uniforms]);
-
-                self.queries.start(format!("intersection {}", i), encoder);
-                self.passes.intersection.dispatch(
-                    encoder,
-                    &geometry_bindgroup,
-                    &bindgroups.intersection_pass,
-                    dispatch_size,
-                );
+        match self.mode {
+            BlitMode::GBuffer|BlitMode::MotionVector => {
+                let asvgf = self.asvgf.as_mut().unwrap();
+                asvgf.start();
+                asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
+                asvgf.end(&self.camera, &dispatch_size);
+            },
+            BlitMode::DenoisedPathrace => {
+                let asvgf = self.asvgf.as_mut().unwrap();
+                self.queries.start("asvgf", encoder);
+                asvgf.start();
+                asvgf.render(encoder, geometry_bindgroup, &dispatch_size);
+                asvgf.end(&self.camera, &dispatch_size);
                 self.queries.end(encoder);
-            }
+            },
+            BlitMode::Pahtrace => {
+                // Alternate between intersection & shading.
+                for i in 1..nb_bounces {
+                    // @todo: Use dynamic offset
+                    self.global_uniforms.seed += 1;
+                    self.global_uniforms.bounces = i;
+                    self.global_uniforms_buffer
+                        .update(&queue, &[self.global_uniforms]);
 
-            self.queries.start(format!("shading {}", i), encoder);
-            self.passes.shading.dispatch(
-                encoder,
-                geometry_bindgroup,
-                surface_bindgroup,
-                &bindgroups.shading_pass,
-                dispatch_size,
-            );
-            self.queries.end(encoder);
+                    self.queries.start(format!("intersection {}", i), encoder);
+                    self.passes.intersection.dispatch(
+                        encoder,
+                        &geometry_bindgroup,
+                        &bindgroups.intersection_pass,
+                        dispatch_size,
+                    );
+                    self.queries.end(encoder);
+
+                    self.queries.start(format!("shading {}", i), encoder);
+                    self.passes.shading.dispatch(
+                        encoder,
+                        geometry_bindgroup,
+                        surface_bindgroup,
+                        &bindgroups.shading_pass,
+                        dispatch_size,
+                    );
+                    self.queries.end(encoder);
+                }
+                // Accumulation
+                #[cfg(not(target_arch = "wasm32"))]
+                let accumulate_bindgroup = &bindgroups.accumulate_pass;
+                #[cfg(target_arch = "wasm32")]
+                let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
+                    &bindgroups.accumulate_pass
+                } else {
+                    &bindgroups.accumulate_pass2
+                };
+
+                self.passes
+                    .accumulation
+                    .dispatch(encoder, accumulate_bindgroup, dispatch_size);
+
+                if self.accumulate {
+                    self.global_uniforms.frame_count += 1;
+                }
+            },
+            _ => {}
         }
 
-        // Accumulation
-        #[cfg(not(target_arch = "wasm32"))]
-        let accumulate_bindgroup = &bindgroups.accumulate_pass;
-        #[cfg(target_arch = "wasm32")]
-        let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
-            &bindgroups.accumulate_pass
-        } else {
-            &bindgroups.accumulate_pass2
-        };
-
-        self.passes
-            .accumulation
-            .dispatch(encoder, accumulate_bindgroup, dispatch_size);
-
-        if self.accumulate {
-            self.global_uniforms.frame_count += 1;
-        }
 
         self.queries.resolve(encoder);
-
-        self.prev_model_to_screen = {
-            // todo: Use matrix at an early stage.
-            let aspect = self.size.0 as f32 / self.size.1 as f32;
-            let perspective = glam::Mat4::perspective_infinite_lh(self.camera.v_fov, aspect, 0.01);
-
-            let view = {
-                let dir = self.camera.up.cross(self.camera.right).normalize().extend(0.0);
-                let rot = glam::Mat4::from_cols(self.camera.right.extend(0.0), self.camera.up.extend(0.0), dir, glam::Vec4::W);
-                glam::Mat4::from_translation(self.camera.origin) * rot
-            };
-            let inv_view = view.inverse();
-            perspective * inv_view
-        };
     }
 
-    pub fn blit(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    pub fn blit(&mut self, device: &Device, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         let mut size: (u32, u32) = self.size;
         if !self.accumulate {
             size = self.get_downsampled_size();
         }
 
-        if let Some(bindgroup) = &self.debug_blit_bindgroup {
-            self.passes.blit_texture.draw(encoder, &view, bindgroup, &size);
-            return;
+        if self.debug_blit_bindgroup.is_empty() {
+            match self.mode {
+                BlitMode::DenoisedPathrace => {
+                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
+                },
+                BlitMode::GBuffer => {
+                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].gbuffer, &textures[1].gbuffer);
+                },
+                BlitMode::MotionVector => {
+                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].motion, &textures[1].motion);
+                },
+                _ => {}
+            }
         }
+
+        match self.mode {
+            BlitMode::DenoisedPathrace|BlitMode::GBuffer|BlitMode::MotionVector => {
+                let index: usize = self.frame_back as usize;
+                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index], &size);
+                return;
+            },
+            _ => {}
+        }
+
         let bindgroups: &BindGroups = if self.accumulate {
             self.fullscreen_bindgroups.as_ref().unwrap()
         } else {
@@ -518,29 +545,6 @@ impl Renderer {
             &bindgroups.blit_pass2
         };
         self.passes.blit.draw(encoder, &view, bindgroup);
-    }
-
-    pub fn atrou_pass(&self) {
-        // for i in 0..4 {}
-    }
-
-    pub fn set_blit_mode(&mut self, device: &Device, mode: BlitMode) {
-        if self.mode == mode { return; }
-
-        self.mode = mode;
-        self.debug_blit_bindgroup = None;
-
-        let texture = match self.mode {
-            BlitMode::GBuffer => {
-                &self.asvgf.as_ref().unwrap().textures.gbuffer
-            },
-            BlitMode::MotionVector => {
-                &self.asvgf.as_ref().unwrap().textures.motion
-            },
-            _ => return
-        };
-
-        self.debug_blit_bindgroup = Some(self.passes.blit_texture.create_frame_bind_groups(device.inner(), texture, device.sampler_nearest()));
     }
 
     pub fn reset_accumulation(&mut self, queue: &wgpu::Queue) {
@@ -603,6 +607,12 @@ impl Renderer {
                 use_noise_texture: flag as u32,
             }],
         )
+    }
+
+    pub fn set_blit_mode(&mut self, mode: BlitMode) {
+        if self.mode == mode { return; }
+        self.mode = mode;
+        self.debug_blit_bindgroup.clear(); // Re-create
     }
 
     pub fn get_size(&self) -> (u32, u32) {
@@ -776,5 +786,12 @@ impl Renderer {
             &self.passes.blit,
             &self.passes.lightmap
         )
+    }
+
+    fn create_debug_bindgroup(&self, device: &Device, curr: &wgpu::TextureView, prev: &wgpu::TextureView) -> Vec<wgpu::BindGroup> {
+        vec![
+            self.passes.blit_texture.create_frame_bind_groups(device.inner(), curr, device.sampler_nearest()),
+            self.passes.blit_texture.create_frame_bind_groups(device.inner(), prev, device.sampler_nearest()),
+        ]
     }
 }
