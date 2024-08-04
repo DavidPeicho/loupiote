@@ -11,6 +11,15 @@ use crate::scene::SceneGPU;
 use crate::render::{ASVFG};
 use crate::ProbeGPU;
 
+fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
+    let w = size.0 as f32;
+    let h = size.1 as f32;
+    (
+        (w * factor) as u32,
+        (h * factor) as u32,
+    )
+}
+
 struct RenderTargets {
     main: wgpu::TextureView,
     #[cfg(target_arch = "wasm32")]
@@ -200,8 +209,7 @@ pub struct Renderer {
     geometry_bindgroup: Option<wgpu::BindGroup>,
     surface_bindgroup: Option<wgpu::BindGroup>,
 
-    fullscreen_bindgroups: Option<BindGroups>,
-    downsample_bindgroups: Option<BindGroups>,
+    frame_bindgroups: Option<BindGroups>,
     debug_blit_bindgroup: Vec<wgpu::BindGroup>,
 
     // Textures
@@ -229,8 +237,9 @@ impl Renderer {
         .fold(0, |max, &val| std::cmp::max(max, val))
     }
 
-    pub fn new(device: &Device, size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
-        let downsample_factor = 0.25;
+    pub fn new(device: &Device, original_size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
+        let downsample_factor = 0.5;
+        let size = get_downsampled_size(&original_size, downsample_factor);
         let pixel_count: u64 = size.0 as u64 * size.1 as u64;
 
         let geometry_bindgroup_layout = albedo_rtx::RTGeometryBindGroupLayout::new(device);
@@ -289,19 +298,18 @@ impl Renderer {
             geometry_bindgroup: None,
             surface_bindgroup: None,
 
-            fullscreen_bindgroups: None,
-            downsample_bindgroups: None,
+            frame_bindgroups: None,
             debug_blit_bindgroup: Vec::new(),
 
             texture_blue_noise: None,
 
             size,
+            downsample_factor,
 
             frame_back: true,
             mode: BlitMode::Pahtrace,
 
             queries: gpu::Queries::new(device, QueriesOptions::new(10)),
-            downsample_factor,
             accumulate: false,
         }
     }
@@ -319,8 +327,9 @@ impl Renderer {
         probe: Option<&ProbeGPU>,
         size: (u32, u32),
     ) {
-        self.size = size;
-        let pixel_count: u64 = size.0 as u64 * size.1 as u64;
+        self.size = get_downsampled_size(&size, self.downsample_factor);
+
+        let pixel_count: u64 = self.size.0 as u64 * self.size.1 as u64;
         self.ray_buffer = gpu::Buffer::new_storage(
             &device,
             pixel_count as u64,
@@ -345,7 +354,7 @@ impl Renderer {
         self.passes.lightmap.draw(
             encoder,
             &self.render_targets.main,
-            &self.fullscreen_bindgroups.as_ref().unwrap().lightmap_pass,
+            &self.frame_bindgroups.as_ref().unwrap().lightmap_pass,
             &scene_resources.instance_buffer,
             &scene_resources.index_buffer,
             &scene_resources.vertex_buffer.inner(),
@@ -357,25 +366,18 @@ impl Renderer {
         const MOVING_NUM_BOUNCES: u32 = 2;
 
         self.frame_back = !self.frame_back;
-        let mut bindgroups = &self.fullscreen_bindgroups;
 
-        // Step 1:
-        //     * Update the frame uniforms.
-        //     * Send the uniforms to the GPU.
-        //     * Select fullscreen / downsample resolution.
-
-        let mut nb_bounces = STATIC_NUM_BOUNCES;
-        let mut size: (u32, u32) = self.size;
-        if !self.accumulate {
-            nb_bounces = MOVING_NUM_BOUNCES;
-            bindgroups = &self.downsample_bindgroups;
-            size = self.get_downsampled_size();
-        }
-
+        let bindgroups = &self.frame_bindgroups;
         let bindgroups = match bindgroups {
             Some(val) => val,
             None => return,
         };
+
+        let nb_bounces = if !self.accumulate { MOVING_NUM_BOUNCES } else { STATIC_NUM_BOUNCES };
+
+        // Step 1:
+        //     * Update the frame uniforms.
+        //     * Send the uniforms to the GPU.
 
         let geometry_bindgroup = match &self.geometry_bindgroup {
             Some(val) => val,
@@ -383,11 +385,11 @@ impl Renderer {
         };
         let surface_bindgroup = self.surface_bindgroup.as_ref().unwrap();
 
-        let dispatch_size: (u32, u32, u32) = (size.0, size.1, 1);
+        let dispatch_size: (u32, u32, u32) = (self.size.0, self.size.1, 1);
 
-        self.camera.dimensions = [size.0, size.1];
+        self.camera.dimensions = [self.size.0, self.size.1];
         self.camera_uniforms.update(&queue, &[self.camera]);
-        self.global_uniforms.dimensions = [size.0, size.1];
+        self.global_uniforms.dimensions = [self.size.0, self.size.1];
         self.global_uniforms_buffer
             .update(&queue, &[self.global_uniforms]);
 
@@ -498,11 +500,6 @@ impl Renderer {
     }
 
     pub fn blit(&mut self, device: &Device, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
-        let mut size: (u32, u32) = self.size;
-        if !self.accumulate {
-            size = self.get_downsampled_size();
-        }
-
         if self.debug_blit_bindgroup.is_empty() {
             match self.mode {
                 BlitMode::DenoisedPathrace => {
@@ -524,17 +521,13 @@ impl Renderer {
         match self.mode {
             BlitMode::DenoisedPathrace|BlitMode::GBuffer|BlitMode::MotionVector => {
                 let index: usize = self.frame_back as usize;
-                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index], &size);
+                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index], &self.size);
                 return;
             },
             _ => {}
         }
 
-        let bindgroups: &BindGroups = if self.accumulate {
-            self.fullscreen_bindgroups.as_ref().unwrap()
-        } else {
-            self.downsample_bindgroups.as_ref().unwrap()
-        };
+        let bindgroups: &BindGroups = self.frame_bindgroups.as_ref().unwrap();
 
         #[cfg(not(target_arch = "wasm32"))]
         let bindgroup = &bindgroups.blit_pass;
@@ -615,17 +608,8 @@ impl Renderer {
         self.debug_blit_bindgroup.clear(); // Re-create
     }
 
-    pub fn get_size(&self) -> (u32, u32) {
-        self.size
-    }
-
-    pub fn get_downsampled_size(&self) -> (u32, u32) {
-        let w = self.size.0 as f32;
-        let h = self.size.1 as f32;
-        (
-            (w * self.downsample_factor) as u32,
-            (h * self.downsample_factor) as u32,
-        )
+    pub fn get_size(&self) -> &(u32, u32) {
+        &self.size
     }
 
     pub fn set_resources(
@@ -653,10 +637,8 @@ impl Renderer {
             _ => device.default_textures().filterable_2d(),
         };
 
-        self.fullscreen_bindgroups =
+        self.frame_bindgroups =
             Some(self.create_bind_groups(device, scene_resources, self.size));
-        self.downsample_bindgroups =
-            Some(self.create_bind_groups(device, scene_resources, self.get_downsampled_size()));
         self.geometry_bindgroup = Some(self.geometry_bindgroup_layout.create_bindgroup(
             device,
             scene_resources.bvh_buffer.as_storage_slice().unwrap(),
@@ -720,7 +702,7 @@ impl Renderer {
         blit_pass.draw(
             &mut encoder,
             &view,
-            &self.fullscreen_bindgroups.as_ref().unwrap().blit_pass,
+            &self.frame_bindgroups.as_ref().unwrap().blit_pass,
         );
 
         encoder.copy_texture_to_buffer(

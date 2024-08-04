@@ -26,8 +26,7 @@ impl ScreenSpaceTextures {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    | wgpu::TextureUsages::STORAGE_BINDING,
                 view_formats: &[],
             })
         };
@@ -45,8 +44,7 @@ impl ScreenSpaceTextures {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    | wgpu::TextureUsages::STORAGE_BINDING,
                 view_formats: &[],
             })
         };
@@ -60,10 +58,9 @@ impl ScreenSpaceTextures {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rg16Float,
+            format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
             usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
 
@@ -144,7 +141,7 @@ impl ASVFG {
 
             let view = {
                 let dir = camera.up.cross(camera.right).normalize().extend(0.0);
-                let rot = glam::Mat4::from_cols(camera.right.extend(0.0), camera.up.extend(0.0), dir, glam::Vec4::W);
+                let rot = glam::Mat4::from_cols(camera.right.normalize().extend(0.0), camera.up.normalize().extend(0.0), dir, glam::Vec4::W);
                 glam::Mat4::from_translation(camera.origin) * rot
             };
             let inv_view = view.inverse();

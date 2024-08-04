@@ -106,7 +106,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     };
 
     // DEBUG
-    app_context.settings.blit_mode = BlitMode::DenoisedPathrace;
+    app_context.settings.blit_mode = BlitMode::Pahtrace;
     // END DEBUG
 
     app_context.resize(init_size.width, init_size.height);
