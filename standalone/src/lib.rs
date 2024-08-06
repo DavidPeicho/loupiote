@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use egui::debug_text::print;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -58,10 +59,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         width: init_size.width,
         height: init_size.height,
         desired_maximum_frame_latency: 2,
-        #[cfg(target_arch = "wasm32")]
         present_mode: wgpu::PresentMode::Fifo,
-        #[cfg(not(target_arch = "wasm32"))]
-        present_mode: wgpu::PresentMode::Immediate,
         view_formats: vec![],
     };
     surface_config.width = init_size.width;
@@ -106,7 +104,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     };
 
     // DEBUG
-    app_context.settings.blit_mode = BlitMode::Pahtrace;
+    app_context.settings.blit_mode = BlitMode::DenoisedPathrace;
     // END DEBUG
 
     app_context.resize(init_size.width, init_size.height);
@@ -256,6 +254,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
                             .create_view(&wgpu::TextureViewDescriptor::default());
                         let timestamp_period = app_context.platform.queue.get_timestamp_period();
 
+                        // camera_controller.move_speed_factor = 0.35;
+                        // camera_controller.set_command(CameraMoveCommand::Left);
                         let (camera_right, camera_up) = camera_controller.update(delta);
 
                         let mut encoder =

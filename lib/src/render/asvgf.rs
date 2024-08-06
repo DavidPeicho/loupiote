@@ -128,8 +128,7 @@ impl ASVFG {
         self.passes.gbuffer.dispatch(encoder, &geometry_bindgroup,self.curr_gbuffer_bindgroup(), dispatch_size, &self.prev_model_to_screen);
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, geometry_bindgroup: &wgpu::BindGroup, dispatch_size: &(u32, u32, u32)) {
-        self.gbuffer_pass(encoder, geometry_bindgroup, dispatch_size);
+    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32)) {
         self.passes.temporal.dispatch(encoder, self.curr_temporal_bindgroup(), dispatch_size);
     }
 
@@ -137,7 +136,7 @@ impl ASVFG {
         self.prev_model_to_screen = {
             // todo: Use matrix at an early stage.
             let aspect = dispatch_size.0 as f32 / dispatch_size.1 as f32;
-            let perspective = glam::Mat4::perspective_infinite_lh(camera.v_fov, aspect, 0.01);
+            let perspective = glam::Mat4::perspective_lh(camera.v_fov, aspect, 0.01, 100.0);
 
             let view = {
                 let dir = camera.up.cross(camera.right).normalize().extend(0.0);

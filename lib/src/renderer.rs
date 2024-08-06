@@ -420,7 +420,7 @@ impl Renderer {
 
         // Step 3:
         //
-        // Raytrace shade first bounce
+        // First shading ray
         self.queries.start("shading 0", encoder);
         self.passes.shading.dispatch(
             encoder,
@@ -432,48 +432,53 @@ impl Renderer {
         self.queries.end(encoder);
 
         match self.mode {
-            BlitMode::GBuffer|BlitMode::MotionVector => {
+            BlitMode::GBuffer|BlitMode::MotionVector|BlitMode::DenoisedPathrace => {
                 let asvgf = self.asvgf.as_mut().unwrap();
                 asvgf.start();
                 asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
                 asvgf.end(&self.camera, &dispatch_size);
             },
+            _ => {}
+        };
+
+        // Alternate between intersection & shading.
+        for i in 1..nb_bounces {
+            // @todo: Use dynamic offset
+            self.global_uniforms.seed += 1;
+            self.global_uniforms.bounces = i;
+            self.global_uniforms_buffer
+                .update(&queue, &[self.global_uniforms]);
+
+            self.queries.start(format!("intersection {}", i), encoder);
+            self.passes.intersection.dispatch(
+                encoder,
+                &geometry_bindgroup,
+                &bindgroups.intersection_pass,
+                dispatch_size,
+            );
+            self.queries.end(encoder);
+
+            self.queries.start(format!("shading {}", i), encoder);
+            self.passes.shading.dispatch(
+                encoder,
+                geometry_bindgroup,
+                surface_bindgroup,
+                &bindgroups.shading_pass,
+                dispatch_size,
+            );
+            self.queries.end(encoder);
+        }
+
+        match self.mode {
             BlitMode::DenoisedPathrace => {
                 let asvgf = self.asvgf.as_mut().unwrap();
                 self.queries.start("asvgf", encoder);
                 asvgf.start();
-                asvgf.render(encoder, geometry_bindgroup, &dispatch_size);
+                asvgf.render(encoder, &dispatch_size);
                 asvgf.end(&self.camera, &dispatch_size);
                 self.queries.end(encoder);
             },
             BlitMode::Pahtrace => {
-                // Alternate between intersection & shading.
-                for i in 1..nb_bounces {
-                    // @todo: Use dynamic offset
-                    self.global_uniforms.seed += 1;
-                    self.global_uniforms.bounces = i;
-                    self.global_uniforms_buffer
-                        .update(&queue, &[self.global_uniforms]);
-
-                    self.queries.start(format!("intersection {}", i), encoder);
-                    self.passes.intersection.dispatch(
-                        encoder,
-                        &geometry_bindgroup,
-                        &bindgroups.intersection_pass,
-                        dispatch_size,
-                    );
-                    self.queries.end(encoder);
-
-                    self.queries.start(format!("shading {}", i), encoder);
-                    self.passes.shading.dispatch(
-                        encoder,
-                        geometry_bindgroup,
-                        surface_bindgroup,
-                        &bindgroups.shading_pass,
-                        dispatch_size,
-                    );
-                    self.queries.end(encoder);
-                }
                 // Accumulation
                 #[cfg(not(target_arch = "wasm32"))]
                 let accumulate_bindgroup = &bindgroups.accumulate_pass;
@@ -521,7 +526,7 @@ impl Renderer {
         match self.mode {
             BlitMode::DenoisedPathrace|BlitMode::GBuffer|BlitMode::MotionVector => {
                 let index: usize = self.frame_back as usize;
-                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index], &self.size);
+                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index]);
                 return;
             },
             _ => {}
@@ -542,8 +547,11 @@ impl Renderer {
 
     pub fn reset_accumulation(&mut self, queue: &wgpu::Queue) {
         self.global_uniforms.frame_count = 1;
-        self.global_uniforms.seed = 0;
         self.accumulate = false;
+
+        if self.mode == BlitMode::Pahtrace {
+            self.global_uniforms.seed = 0;
+        }
         self.global_uniforms_buffer
             .update(&queue, &[self.global_uniforms]);
     }
