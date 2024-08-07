@@ -4,6 +4,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
+#[derive(Default)]
 pub struct InputManager {}
 
 impl InputManager {

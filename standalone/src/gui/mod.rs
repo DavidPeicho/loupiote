@@ -14,7 +14,6 @@ pub struct GUIContext<'a> {
     pub executor: &'a crate::Spawner<'static>,
     pub event_loop_proxy: &'a crate::EventLoopProxy,
     pub renderer: &'a mut crate::Renderer,
-    pub surface_config: &'a wgpu::SurfaceConfiguration,
     pub settings: &'a mut crate::Settings,
 }
 
@@ -43,7 +42,7 @@ impl GUI {
         );
         GUI {
             platform,
-            renderer: egui_wgpu::Renderer::new(device, surface_config.format, None, 1),
+            renderer: egui_wgpu::Renderer::new(device, surface_config.format, None, 1, true),
             captured: false,
             error_window: None,
             windows: Windows {
@@ -62,32 +61,27 @@ impl GUI {
 
     pub fn resize(&mut self, _: f32) {}
 
-    pub fn handle_event<T>(
+    pub fn handle_event(
         &mut self,
         window: &winit::window::Window,
-        winit_event: &winit::event::Event<T>,
+        event: &winit::event::WindowEvent,
     ) -> bool {
         use winit::event::*;
-        match winit_event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    winit::event::WindowEvent::Resized(size) => {
-                        // winit bug
-                        if size.width == u32::MAX || size.height == u32::MAX {
-                            return false;
-                        }
-                    }
-                    _ => (),
+        match event {
+            winit::event::WindowEvent::Resized(size) => {
+                // winit bug
+                if size.width == u32::MAX || size.height == u32::MAX {
+                    return false;
                 }
-                let consumed = self.platform.on_window_event(window, &event).consumed;
-                self.captured = match event {
-                    WindowEvent::CursorMoved { .. } => {
-                        self.platform.egui_ctx().wants_pointer_input()
-                    }
-                    _ => consumed,
-                };
             }
             _ => (),
+        }
+        let consumed = self.platform.on_window_event(window, &event).consumed;
+        self.captured = match event {
+            WindowEvent::CursorMoved { .. } => {
+                self.platform.egui_ctx().wants_pointer_input()
+            }
+            _ => consumed,
         };
         self.captured
     }
@@ -110,7 +104,7 @@ impl GUI {
 
         let pixels_per_point = context.platform.window.scale_factor() as f32;
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [context.surface_config.width, context.surface_config.height],
+            size_in_pixels: [context.platform.surface_config.width, context.platform.surface_config.height],
             pixels_per_point,
         };
 
@@ -132,7 +126,7 @@ impl GUI {
         let user_cmd_bufs = {
             for (id, image_delta) in &textures_delta.set {
                 self.renderer.update_texture(
-                    &context.platform.device.inner(),
+                    context.platform.device.inner(),
                     &context.platform.queue,
                     *id,
                     image_delta,
