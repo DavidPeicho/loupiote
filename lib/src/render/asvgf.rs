@@ -4,13 +4,14 @@ use wgpu;
 
 use crate::Device;
 
-pub struct ScreenSpaceTextures {
+pub struct ScreenResources {
     pub radiance: wgpu::TextureView,
     pub gbuffer: wgpu::TextureView,
-    pub motion: wgpu::TextureView
+    pub motion: wgpu::TextureView,
+    pub history: gpu::Buffer<u32>
 }
 
-impl ScreenSpaceTextures {
+impl ScreenResources {
     pub fn new(device: &Device, size: &(u32, u32), index: usize) -> Self {
         let radiance: wgpu::Texture = {
             let label = format!("Radiance Render Target {}", index);
@@ -63,11 +64,21 @@ impl ScreenSpaceTextures {
                 | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
+        let pixel_count = size.0 * size.1;
+
+        let history = {
+            let label = format!("History Buffer {}", index);
+            gpu::Buffer::new_storage(device, pixel_count as u64, Some(gpu::BufferInitDescriptor {
+                label: Some(&label),
+                usage: wgpu::BufferUsages::STORAGE
+            }))
+        };
 
         Self {
             radiance: radiance.create_view(&wgpu::TextureViewDescriptor::default()),
             gbuffer: gbuffer.create_view(&wgpu::TextureViewDescriptor::default()),
-            motion: motion_vectors.create_view(&wgpu::TextureViewDescriptor::default())
+            motion: motion_vectors.create_view(&wgpu::TextureViewDescriptor::default()),
+            history
         }
     }
 }
@@ -78,7 +89,8 @@ pub struct ASVGFPasses {
 }
 
 pub(crate) struct ASVFG {
-    pub textures: Vec<ScreenSpaceTextures>,
+    pub resources: Vec<ScreenResources>,
+
     pub passes: ASVGFPasses,
     pub gbuffer_bindgroup: Vec<wgpu::BindGroup>,
     pub temporal_bindgroup: Vec<wgpu::BindGroup>,
@@ -94,26 +106,29 @@ impl ASVFG {
             gbuffer: GBufferPass::new(device, geometry_layout, None),
             temporal: TemporalAccumulationPass::new(device, None)
         };
-        let textures = {
-            let mut vec = Vec::with_capacity(2);
-            vec.push(ScreenSpaceTextures::new(device, size, 0));
-            vec.push(ScreenSpaceTextures::new(device, size, 1));
+        let resources = {
+            let mut vec: Vec<_> = Vec::with_capacity(2);
+            vec.push(ScreenResources::new(device, size, 0));
+            vec.push(ScreenResources::new(device, size, 1));
             vec
         };
 
-        let gbuffer_bindgroup = textures.iter().map(|texture| {
-            passes.gbuffer.create_frame_bind_groups(device, size, &texture.gbuffer, &texture.motion, intersections)
+        let gbuffer_bindgroup = resources.iter().map(|res| {
+            passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &res.motion, intersections)
         }).collect();
 
-        let temporal_bindgroup = textures.iter().enumerate().map(|(i, texture)| {
-            let previous = &textures[1 - i];
-            passes.temporal.create_frame_bind_groups(device, size, &texture.radiance, &rays, &previous.gbuffer, &texture.gbuffer, &texture.motion, &previous.radiance, device.sampler_nearest())
+        let temporal_bindgroup = resources.iter().enumerate().map(|(i, res)| {
+            let previous = &resources[1 - i];
+            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history)
         }).collect();
+
+        let pixel_count = size.0 * size.1;
 
         ASVFG {
+            resources,
+
             gbuffer_bindgroup,
             temporal_bindgroup,
-            textures,
             passes,
             current_frame_back: true,
             prev_model_to_screen: glam::Mat4::IDENTITY
@@ -149,18 +164,18 @@ impl ASVFG {
     }
 
     pub fn resize(&mut self, device: &Device, size: &(u32, u32), intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) {
-        self.textures = {
+        self.resources = {
             let mut vec = Vec::with_capacity(2);
-            vec.push(ScreenSpaceTextures::new(device, size, 0));
-            vec.push(ScreenSpaceTextures::new(device, size, 1));
+            vec.push(ScreenResources::new(device, size, 0));
+            vec.push(ScreenResources::new(device, size, 1));
             vec
         };
-        self.gbuffer_bindgroup = self.textures.iter().map(|texture| {
-            self.passes.gbuffer.create_frame_bind_groups(device, size, &texture.gbuffer, &texture.motion, intersections)
+        self.gbuffer_bindgroup = self.resources.iter().map(|res| {
+            self.passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &res.motion, intersections)
         }).collect();
-        self.temporal_bindgroup = self.textures.iter().enumerate().map(|(i, texture)| {
-            let previous = &self.textures[1 - i];
-            self.passes.temporal.create_frame_bind_groups(device, size, &texture.radiance, &rays, &previous.gbuffer, &texture.gbuffer, &texture.motion, &previous.radiance, device.sampler_nearest())
+        self.temporal_bindgroup = self.resources.iter().enumerate().map(|(i, res)| {
+            let previous = &self.resources[1 - i];
+            self.passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history)
         }).collect();
     }
 

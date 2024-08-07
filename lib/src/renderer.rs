@@ -431,12 +431,14 @@ impl Renderer {
         );
         self.queries.end(encoder);
 
+        if let Some(asvgf) = self.asvgf.as_mut() {
+            asvgf.start();
+        }
+
         match self.mode {
             BlitMode::GBuffer|BlitMode::MotionVector|BlitMode::DenoisedPathrace => {
                 let asvgf = self.asvgf.as_mut().unwrap();
-                asvgf.start();
                 asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
-                asvgf.end(&self.camera, &dispatch_size);
             },
             _ => {}
         };
@@ -473,9 +475,7 @@ impl Renderer {
             BlitMode::DenoisedPathrace => {
                 let asvgf = self.asvgf.as_mut().unwrap();
                 self.queries.start("asvgf", encoder);
-                asvgf.start();
                 asvgf.render(encoder, &dispatch_size);
-                asvgf.end(&self.camera, &dispatch_size);
                 self.queries.end(encoder);
             },
             BlitMode::Pahtrace => {
@@ -500,6 +500,9 @@ impl Renderer {
             _ => {}
         }
 
+        if let Some(asvgf) = self.asvgf.as_mut() {
+            asvgf.end(&self.camera, &dispatch_size);
+        }
 
         self.queries.resolve(encoder);
     }
@@ -508,15 +511,15 @@ impl Renderer {
         if self.debug_blit_bindgroup.is_empty() {
             match self.mode {
                 BlitMode::DenoisedPathrace => {
-                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    let textures = &self.asvgf.as_ref().unwrap().resources;
                     self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
                 },
                 BlitMode::GBuffer => {
-                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    let textures = &self.asvgf.as_ref().unwrap().resources;
                     self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].gbuffer, &textures[1].gbuffer);
                 },
                 BlitMode::MotionVector => {
-                    let textures = &self.asvgf.as_ref().unwrap().textures;
+                    let textures = &self.asvgf.as_ref().unwrap().resources;
                     self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].motion, &textures[1].motion);
                 },
                 _ => {}

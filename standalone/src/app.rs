@@ -280,18 +280,18 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 renderer.blit(&self.platform.device, &mut encoder, &view);
                 renderer.accumulate = true;
 
-                let mut encoder_gui =
-                    self.platform.device.inner().create_command_encoder(
-                        &wgpu::CommandEncoderDescriptor {
-                            label: Some("encoder-gui"),
-                        },
-                    );
+                // let mut encoder_gui =
+                //     self.platform.device.inner().create_command_encoder(
+                //         &wgpu::CommandEncoderDescriptor {
+                //             label: Some("encoder-gui"),
+                //         },
+                //     );
                 // Render GUI.
                 let performance = &mut self.gui.windows.performance_info_window;
                 performance.set_global_performance(delta);
 
-                let gui_cmd_buffers: Vec<wgpu::CommandBuffer> = self.gui.render(
-                    &mut encoder_gui,
+                self.gui.render(
+                    &mut encoder,
                     &mut GUIContext {
                         platform: &self.platform,
                         executor: &self.executor,
@@ -303,11 +303,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 );
 
                 self.platform.queue.submit(
-                    std::iter::once(encoder.finish()).chain(
-                        gui_cmd_buffers
-                            .into_iter()
-                            .chain(std::iter::once(encoder_gui.finish())),
-                    ),
+                    std::iter::once(encoder.finish()),
                 );
 
                 frame.present();
