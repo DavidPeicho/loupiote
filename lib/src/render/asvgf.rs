@@ -122,8 +122,6 @@ impl ASVFG {
             passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history)
         }).collect();
 
-        let pixel_count = size.0 * size.1;
-
         ASVFG {
             resources,
 
