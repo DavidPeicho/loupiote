@@ -40,6 +40,7 @@ dependencies = [
 [[package]]
 name = "albedo_backend"
 version = "0.0.1-beta.0"
+source = "git+https://github.com/albedo-engine/albedo.git#93ae2f60e8763c950e275b717fcda9a704dcd199"
 dependencies = [
  "bytemuck",
  "pas",
@@ -49,6 +50,7 @@ dependencies = [
 [[package]]
 name = "albedo_bvh"
 version = "0.0.1-beta.0"
+source = "git+https://github.com/albedo-engine/albedo.git#93ae2f60e8763c950e275b717fcda9a704dcd199"
 dependencies = [
  "albedo_backend",
  "albedo_math",
@@ -76,6 +78,7 @@ dependencies = [
 [[package]]
 name = "albedo_math"
 version = "0.0.1-beta.0"
+source = "git+https://github.com/albedo-engine/albedo.git#93ae2f60e8763c950e275b717fcda9a704dcd199"
 dependencies = [
  "glam",
 ]
@@ -83,6 +86,7 @@ dependencies = [
 [[package]]
 name = "albedo_rtx"
 version = "0.0.1-beta.0"
+source = "git+https://github.com/albedo-engine/albedo.git#93ae2f60e8763c950e275b717fcda9a704dcd199"
 dependencies = [
  "albedo_backend",
  "albedo_bvh",
