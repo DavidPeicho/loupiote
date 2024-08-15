@@ -33,7 +33,7 @@ impl CameraController {
             rot_damping_factor: 0.5,
             rot_speed_factor: glam::Vec2::new(20.0, 20.0),
             direction: glam::Vec3::new(0.0, 0.0, -1.0),
-            rotation_enabled: true,
+            rotation_enabled: false,
             translation_enabled: true,
             ..Default::default()
         }
