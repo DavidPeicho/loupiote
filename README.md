@@ -14,18 +14,13 @@ This repository is based on the [Albedo](https://github.com/albedo-engine/albedo
     * Load glTF using dialog
     * Save current render
 
-## Build
+## Stability
 
-🚧 Albedo Pathtracer is a work-in-progress and might be unstable 🚧
+🚧 Loupiote is a work-in-progress and might be unstable 🚧
 
-* Download locally the [Albedo library](https://github.com/albedo-engine/albedo)
-* Update the `Cargo.toml` file with the path to your local Albedo library:
-
-```toml
-[dependencies]
-albedo_backend = { path = "[PATH_TO_ALBEDO]/crates/albedo_backend", version = "0.0.1" }
-albedo_rtx = { path = "[PATH_TO_ALBEDO]/crates/albedo_rtx", version = "0.0.1" }
-```
+This package will serve the purpose of:
+* Providing a high-level, easy-to-use Pathracer
+* Helping stabilize the [Albedo](https://github.com/albedo-engine/albedo) core rendering library
 
 ## Usage
 
