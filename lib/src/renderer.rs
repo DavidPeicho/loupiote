@@ -553,7 +553,7 @@ impl Renderer {
         self.accumulate = false;
 
         if self.mode == BlitMode::Pahtrace {
-            self.global_uniforms.seed = 0;
+            // self.global_uniforms.seed = 0;
         }
         self.global_uniforms_buffer
             .update(&queue, &[self.global_uniforms]);

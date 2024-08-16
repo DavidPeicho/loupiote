@@ -7,8 +7,9 @@ use crate::Device;
 pub struct ScreenResources {
     pub radiance: wgpu::TextureView,
     pub gbuffer: wgpu::TextureView,
-    pub motion: wgpu::TextureView,
-    pub history: gpu::Buffer<u32>
+    pub motion: wgpu::TextureView, // TODO: No need for pingpong
+    pub moments: wgpu::TextureView,
+    pub history: gpu::Buffer<u32>,
 }
 
 impl ScreenResources {
@@ -64,8 +65,24 @@ impl ScreenResources {
                 | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
-        let pixel_count = size.0 * size.1;
 
+        let moments = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Motion Vectors Texture"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let pixel_count = size.0 * size.1;
         let history = {
             let label = format!("History Buffer {}", index);
             gpu::Buffer::new_storage(device, pixel_count as u64, Some(gpu::BufferInitDescriptor {
@@ -78,6 +95,7 @@ impl ScreenResources {
             radiance: radiance.create_view(&wgpu::TextureViewDescriptor::default()),
             gbuffer: gbuffer.create_view(&wgpu::TextureViewDescriptor::default()),
             motion: motion_vectors.create_view(&wgpu::TextureViewDescriptor::default()),
+            moments: moments.create_view(&wgpu::TextureViewDescriptor::default()),
             history
         }
     }
@@ -119,7 +137,7 @@ impl ASVFG {
 
         let temporal_bindgroup = resources.iter().enumerate().map(|(i, res)| {
             let previous = &resources[1 - i];
-            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history)
+            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
         }).collect();
 
         ASVFG {
@@ -173,7 +191,7 @@ impl ASVFG {
         }).collect();
         self.temporal_bindgroup = self.resources.iter().enumerate().map(|(i, res)| {
             let previous = &self.resources[1 - i];
-            self.passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history)
+            self.passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
         }).collect();
     }
 
