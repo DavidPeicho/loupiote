@@ -1,20 +1,19 @@
 use albedo_backend::gpu;
-use albedo_rtx::{passes::{GBufferPass, TemporalAccumulationPass}, uniforms, Intersection, RTGeometryBindGroupLayout, Ray};
-use wgpu;
+use albedo_rtx::{passes::{ATrousPass, GBufferPass, TemporalAccumulationPass}, uniforms, Intersection, RTGeometryBindGroupLayout, Ray};
 
 use crate::Device;
 
-pub struct ScreenResources {
+pub struct PingPongResources {
+    pub radiance_img: wgpu::Texture,
     pub radiance: wgpu::TextureView,
     pub gbuffer: wgpu::TextureView,
-    pub motion: wgpu::TextureView, // TODO: No need for pingpong
     pub moments: wgpu::TextureView,
     pub history: gpu::Buffer<u32>,
 }
 
-impl ScreenResources {
+impl PingPongResources {
     pub fn new(device: &Device, size: &(u32, u32), index: usize) -> Self {
-        let radiance: wgpu::Texture = {
+        let radiance_img: wgpu::Texture = {
             let label = format!("Radiance Render Target {}", index);
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(&label),
@@ -28,7 +27,9 @@ impl ScreenResources {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::STORAGE_BINDING,
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             })
         };
@@ -50,21 +51,6 @@ impl ScreenResources {
                 view_formats: &[],
             })
         };
-        let motion_vectors = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Motion Vectors Texture"),
-            size: wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        });
 
         let moments = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Motion Vectors Texture"),
@@ -92,11 +78,71 @@ impl ScreenResources {
         };
 
         Self {
-            radiance: radiance.create_view(&wgpu::TextureViewDescriptor::default()),
+            radiance: radiance_img.create_view(&wgpu::TextureViewDescriptor::default()),
+            radiance_img,
             gbuffer: gbuffer.create_view(&wgpu::TextureViewDescriptor::default()),
-            motion: motion_vectors.create_view(&wgpu::TextureViewDescriptor::default()),
             moments: moments.create_view(&wgpu::TextureViewDescriptor::default()),
             history
+        }
+    }
+}
+
+pub struct ScreenResources {
+    pub pingpong: Vec<PingPongResources>,
+    pub motion: wgpu::TextureView,
+    pub radiance_img_temp: wgpu::Texture,
+    pub radiance_temp: wgpu::TextureView,
+}
+
+impl ScreenResources {
+    pub fn new(device: &Device, size: &(u32, u32)) -> Self {
+        let motion_vectors: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Motion Vectors Texture"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let pingpong = {
+            let mut vec: Vec<_> = Vec::with_capacity(2);
+            vec.push(PingPongResources::new(device, size, 0));
+            vec.push(PingPongResources::new(device, size, 1));
+            vec
+        };
+
+        let radiance_img_temp: wgpu::Texture = {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&"Temporary Radiance Render Target"),
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
+        };
+
+        Self {
+            pingpong,
+            radiance_temp: radiance_img_temp.create_view(&wgpu::TextureViewDescriptor::default()),
+            radiance_img_temp,
+            motion: motion_vectors.create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
@@ -104,47 +150,53 @@ impl ScreenResources {
 pub struct ASVGFPasses {
     pub gbuffer: albedo_rtx::passes::GBufferPass,
     pub temporal: albedo_rtx::passes::TemporalAccumulationPass,
+    pub atrous: albedo_rtx::passes::ATrousPass,
 }
 
-pub(crate) struct ASVFG {
-    pub resources: Vec<ScreenResources>,
+pub(crate) struct ASVGF {
+    pub resources: ScreenResources,
 
     pub passes: ASVGFPasses,
     pub gbuffer_bindgroup: Vec<wgpu::BindGroup>,
     pub temporal_bindgroup: Vec<wgpu::BindGroup>,
+    pub atrous_bindgroup: Vec<[wgpu::BindGroup; 2]>,
 
     current_frame_back: bool,
 
     prev_model_to_screen: glam::Mat4
 }
 
-impl ASVFG {
-    pub fn new(device: &Device, size: &(u32, u32), geometry_layout: &RTGeometryBindGroupLayout, intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) -> Self {
+impl ASVGF {
+    pub fn new(device: &Device, size: &(u32, u32), out: &wgpu::TextureView, geometry_layout: &RTGeometryBindGroupLayout, intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) -> Self {
+        let resources = ScreenResources::new(device, size);
+
         let passes = ASVGFPasses {
             gbuffer: GBufferPass::new(device, geometry_layout, None),
-            temporal: TemporalAccumulationPass::new(device, None)
-        };
-        let resources = {
-            let mut vec: Vec<_> = Vec::with_capacity(2);
-            vec.push(ScreenResources::new(device, size, 0));
-            vec.push(ScreenResources::new(device, size, 1));
-            vec
+            temporal: TemporalAccumulationPass::new(device, None),
+            atrous: ATrousPass::new(device, None),
         };
 
-        let gbuffer_bindgroup = resources.iter().map(|res| {
-            passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &res.motion, intersections)
+        let gbuffer_bindgroup = resources.pingpong.iter().map(|res| {
+            passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &resources.motion, intersections)
         }).collect();
 
-        let temporal_bindgroup = resources.iter().enumerate().map(|(i, res)| {
-            let previous = &resources[1 - i];
-            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
+        let temporal_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
+            let previous = &resources.pingpong[1 - i];
+            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
         }).collect();
 
-        ASVFG {
+        let atrous_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
+            // @todo: Use temporary radiance to not overwrite temporally accumulated one
+            passes.atrous.create_frame_bind_groups(device, out, &res.gbuffer, &resources.radiance_temp, device.sampler_nearest())
+        }).collect();
+
+        Self {
             resources,
 
             gbuffer_bindgroup,
             temporal_bindgroup,
+            atrous_bindgroup,
+
             passes,
             current_frame_back: true,
             prev_model_to_screen: glam::Mat4::IDENTITY
@@ -159,8 +211,23 @@ impl ASVFG {
         self.passes.gbuffer.dispatch(encoder, &geometry_bindgroup,self.curr_gbuffer_bindgroup(), dispatch_size, &self.prev_model_to_screen);
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32)) {
+    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32), out_texture: &wgpu::Texture) {
         self.passes.temporal.dispatch(encoder, self.curr_temporal_bindgroup(), dispatch_size);
+
+        let curr_radiance = &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
+        encoder.copy_texture_to_texture(wgpu::ImageCopyTexture {
+            texture: &curr_radiance,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },wgpu::ImageCopyTexture {
+            texture: &self.resources.radiance_img_temp,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        }, self.resources.radiance_img_temp.size());
+
+        self.passes.atrous.dispatch(encoder, self.curr_atrou_bindgroup(), &out_texture, &curr_radiance, dispatch_size);
     }
 
     pub fn end(&mut self, camera: &uniforms::Camera, dispatch_size: &(u32, u32, u32)) {
@@ -179,26 +246,13 @@ impl ASVFG {
         };
     }
 
-    pub fn resize(&mut self, device: &Device, size: &(u32, u32), intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) {
-        self.resources = {
-            let mut vec = Vec::with_capacity(2);
-            vec.push(ScreenResources::new(device, size, 0));
-            vec.push(ScreenResources::new(device, size, 1));
-            vec
-        };
-        self.gbuffer_bindgroup = self.resources.iter().map(|res| {
-            self.passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &res.motion, intersections)
-        }).collect();
-        self.temporal_bindgroup = self.resources.iter().enumerate().map(|(i, res)| {
-            let previous = &self.resources[1 - i];
-            self.passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &res.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
-        }).collect();
-    }
-
     fn curr_gbuffer_bindgroup(&self) -> &wgpu::BindGroup {
         &self.gbuffer_bindgroup[self.current_frame_back as usize]
     }
     fn curr_temporal_bindgroup(&self) -> &wgpu::BindGroup {
         &self.temporal_bindgroup[self.current_frame_back as usize]
+    }
+    fn curr_atrou_bindgroup(&self) -> &[wgpu::BindGroup; 2] {
+        &self.atrous_bindgroup[self.current_frame_back as usize]
     }
 }

@@ -8,7 +8,7 @@ use albedo_rtx::{passes, RadianceParameters};
 use crate::device::Device;
 use crate::errors::Error;
 use crate::scene::SceneGPU;
-use crate::render::{ASVFG};
+use crate::render::{ASVGF};
 use crate::ProbeGPU;
 
 fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
@@ -22,13 +22,14 @@ fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
 
 struct RenderTargets {
     main: wgpu::TextureView,
+    main_texture: wgpu::Texture,
     #[cfg(target_arch = "wasm32")]
     second: wgpu::TextureView,
 }
 
 impl RenderTargets {
     pub fn new(device: &Device, size: (u32, u32)) -> Self {
-        let render_target: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
+        let main_texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Main Render Target"),
             size: wgpu::Extent3d {
                 width: size.0,
@@ -41,7 +42,7 @@ impl RenderTargets {
             format: wgpu::TextureFormat::Rgba32Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         #[cfg(target_arch = "wasm32")]
@@ -60,7 +61,8 @@ impl RenderTargets {
             view_formats: &[],
         });
         Self {
-            main: render_target.create_view(&wgpu::TextureViewDescriptor::default()),
+            main: main_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            main_texture,
             #[cfg(target_arch = "wasm32")]
             second: render_target2.create_view(&wgpu::TextureViewDescriptor::default()),
         }
@@ -202,7 +204,7 @@ pub struct Renderer {
 
     pub passes: Passes,
 
-    asvgf: Option<ASVFG>,
+    asvgf: Option<ASVGF>,
 
     geometry_bindgroup_layout: albedo_rtx::RTGeometryBindGroupLayout,
     surface_bindgroup_layout: albedo_rtx::RTSurfaceBindGroupLayout,
@@ -255,7 +257,7 @@ impl Renderer {
                 usage: wgpu::BufferUsages::STORAGE,
             }),
         );
-        let asvgf = Some(ASVFG::new(device, &size, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
+        let asvgf = Some(ASVGF::new(device, &size, &render_targets.main, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
 
         Self {
             render_targets,
@@ -343,8 +345,8 @@ impl Renderer {
         self.render_targets = RenderTargets::new(device, self.size);
         self.set_resources(device, scene_resources, probe);
 
-        if let Some(asvgf) = &mut self.asvgf {
-            asvgf.resize(device, &self.size, &self.intersection_buffer, &self.ray_buffer);
+        if self.asvgf.is_some() {
+            self.asvgf = Some(ASVGF::new(device, &self.size, &self.render_targets.main, &self.geometry_bindgroup_layout, &self.intersection_buffer, &self.ray_buffer));
         }
 
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
@@ -475,7 +477,7 @@ impl Renderer {
             BlitMode::DenoisedPathrace => {
                 let asvgf = self.asvgf.as_mut().unwrap();
                 self.queries.start("asvgf", encoder);
-                asvgf.render(encoder, &dispatch_size);
+                asvgf.render(encoder, &dispatch_size, &self.render_targets.main_texture);
                 self.queries.end(encoder);
             },
             BlitMode::Pahtrace => {
@@ -511,16 +513,17 @@ impl Renderer {
         if self.debug_blit_bindgroup.is_empty() {
             match self.mode {
                 BlitMode::DenoisedPathrace => {
-                    let textures = &self.asvgf.as_ref().unwrap().resources;
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
+                    // let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
+                    // self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &self.render_targets.main, &self.render_targets.main);
                 },
                 BlitMode::GBuffer => {
-                    let textures = &self.asvgf.as_ref().unwrap().resources;
+                    let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
                     self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].gbuffer, &textures[1].gbuffer);
                 },
                 BlitMode::MotionVector => {
-                    let textures = &self.asvgf.as_ref().unwrap().resources;
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].motion, &textures[1].motion);
+                    let res = &self.asvgf.as_ref().unwrap().resources;
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &res.motion, &res.motion);
                 },
                 _ => {}
             }
