@@ -211,10 +211,15 @@ impl ASVGF {
         self.passes.gbuffer.dispatch(encoder, &geometry_bindgroup,self.curr_gbuffer_bindgroup(), dispatch_size, &self.prev_model_to_screen);
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32), out_texture: &wgpu::Texture) {
+    pub fn temporal_pass(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32)) {
         self.passes.temporal.dispatch(encoder, self.curr_temporal_bindgroup(), dispatch_size);
+    }
 
-        let curr_radiance = &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
+    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32), out_texture: &wgpu::Texture) {
+        self.temporal_pass(encoder, dispatch_size);
+
+        // Copy current frame radiance into temporary input for atrous
+        let curr_radiance: &wgpu::Texture = &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
         encoder.copy_texture_to_texture(wgpu::ImageCopyTexture {
             texture: &curr_radiance,
             mip_level: 0,

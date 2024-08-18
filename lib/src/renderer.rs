@@ -186,6 +186,7 @@ pub struct Passes {
 pub enum BlitMode {
     Pahtrace,
     DenoisedPathrace,
+    Temporal,
     GBuffer,
     MotionVector,
 }
@@ -420,6 +421,11 @@ impl Renderer {
         );
         self.queries.end(encoder);
 
+        if let Some(asvgf) = self.asvgf.as_mut() {
+            asvgf.start();
+            asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
+        }
+
         // Step 3:
         //
         // First shading ray
@@ -432,18 +438,6 @@ impl Renderer {
             dispatch_size,
         );
         self.queries.end(encoder);
-
-        if let Some(asvgf) = self.asvgf.as_mut() {
-            asvgf.start();
-        }
-
-        match self.mode {
-            BlitMode::GBuffer|BlitMode::MotionVector|BlitMode::DenoisedPathrace => {
-                let asvgf = self.asvgf.as_mut().unwrap();
-                asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
-            },
-            _ => {}
-        };
 
         // Alternate between intersection & shading.
         for i in 1..nb_bounces {
@@ -480,6 +474,10 @@ impl Renderer {
                 asvgf.render(encoder, &dispatch_size, &self.render_targets.main_texture);
                 self.queries.end(encoder);
             },
+            BlitMode::Temporal => {
+                let asvgf = self.asvgf.as_mut().unwrap();
+                asvgf.temporal_pass(encoder, &dispatch_size);
+            },
             BlitMode::Pahtrace => {
                 // Accumulation
                 #[cfg(not(target_arch = "wasm32"))]
@@ -513,9 +511,11 @@ impl Renderer {
         if self.debug_blit_bindgroup.is_empty() {
             match self.mode {
                 BlitMode::DenoisedPathrace => {
-                    // let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
-                    // self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
                     self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &self.render_targets.main, &self.render_targets.main);
+                },
+                BlitMode::Temporal => {
+                    let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
                 },
                 BlitMode::GBuffer => {
                     let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
@@ -529,13 +529,10 @@ impl Renderer {
             }
         }
 
-        match self.mode {
-            BlitMode::DenoisedPathrace|BlitMode::GBuffer|BlitMode::MotionVector => {
-                let index: usize = self.frame_back as usize;
-                self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index]);
-                return;
-            },
-            _ => {}
+        if self.mode != BlitMode::Pahtrace {
+            let index: usize = self.frame_back as usize;
+            self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index]);
+            return;
         }
 
         let bindgroups: &BindGroups = self.frame_bindgroups.as_ref().unwrap();
