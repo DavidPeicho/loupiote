@@ -39,6 +39,7 @@ impl GUI {
             &window,
             Some(window.scale_factor() as f32),
             None,
+            None
         );
         GUI {
             platform,
