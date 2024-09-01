@@ -8,7 +8,7 @@ use albedo_rtx::{passes, RadianceParameters};
 use crate::device::Device;
 use crate::errors::Error;
 use crate::scene::SceneGPU;
-use crate::render::{ASVGF};
+use crate::render::ASVGF;
 use crate::ProbeGPU;
 
 fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
@@ -23,7 +23,6 @@ fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
 struct RenderTargets {
     main: wgpu::TextureView,
     main_texture: wgpu::Texture,
-    #[cfg(target_arch = "wasm32")]
     second: wgpu::TextureView,
 }
 
@@ -45,7 +44,6 @@ impl RenderTargets {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        #[cfg(target_arch = "wasm32")]
         let render_target2 = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Second Render Target"),
             size: wgpu::Extent3d {
@@ -63,7 +61,6 @@ impl RenderTargets {
         Self {
             main: main_texture.create_view(&wgpu::TextureViewDescriptor::default()),
             main_texture,
-            #[cfg(target_arch = "wasm32")]
             second: render_target2.create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
@@ -74,10 +71,8 @@ struct BindGroups {
     intersection_pass: wgpu::BindGroup,
     shading_pass: wgpu::BindGroup,
     accumulate_pass: wgpu::BindGroup,
-    #[cfg(target_arch = "wasm32")]
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
-    #[cfg(target_arch = "wasm32")]
     blit_pass2: wgpu::BindGroup,
     lightmap_pass: wgpu::BindGroup,
 }
@@ -119,15 +114,6 @@ impl BindGroups {
                 &intersection_buffer,
                 &global_uniforms.try_into().unwrap(),
             ),
-            #[cfg(not(target_arch = "wasm32"))]
-            accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
-                device,
-                size,
-                &ray_buffer,
-                global_uniforms,
-                &render_targets.main,
-            ),
-            #[cfg(target_arch = "wasm32")]
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
@@ -137,7 +123,6 @@ impl BindGroups {
                 &render_targets.second,
                 &device.sampler_nearest(),
             ),
-            #[cfg(target_arch = "wasm32")]
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 size,
@@ -153,7 +138,6 @@ impl BindGroups {
                 &device.sampler_nearest(),
                 global_uniforms,
             ),
-            #[cfg(target_arch = "wasm32")]
             blit_pass2: blit_pass.create_frame_bind_groups(
                 device,
                 &render_targets.second,
@@ -480,9 +464,6 @@ impl Renderer {
             },
             BlitMode::Pahtrace => {
                 // Accumulation
-                #[cfg(not(target_arch = "wasm32"))]
-                let accumulate_bindgroup = &bindgroups.accumulate_pass;
-                #[cfg(target_arch = "wasm32")]
                 let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
                     &bindgroups.accumulate_pass
                 } else {
@@ -537,9 +518,6 @@ impl Renderer {
 
         let bindgroups: &BindGroups = self.frame_bindgroups.as_ref().unwrap();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let bindgroup = &bindgroups.blit_pass;
-        #[cfg(target_arch = "wasm32")]
         let bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
             &bindgroups.blit_pass
         } else {
