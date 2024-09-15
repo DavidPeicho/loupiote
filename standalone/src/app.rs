@@ -260,10 +260,6 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 let renderer = &mut self.renderer;
                 renderer.queries.start_frame(timestamp_period);
 
-                let cam_right = view_transform.x_axis.xyz();
-                let cam_up = view_transform.y_axis.xyz();
-                let cam_origin = view_transform.w_axis.xyz();
-                renderer.update_camera(cam_origin, cam_right, cam_up);
                 if !self.settings.accumulate || !self.camera_controller.is_static() {
                     renderer.reset_accumulation(&self.platform.queue);
                 }
@@ -272,23 +268,10 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 renderer.use_noise_texture(&self.platform.queue, self.settings.use_blue_noise);
                 renderer.set_blit_mode(self.settings.blit_mode);
 
-                // Debug the lightmapper. We need to reset the frame
-                // renderer.reset_accumulation(&self.platform.queue);
-                // renderer.lightmap(
-                //     &mut encoder,
-                //     &self.scene_gpu,
-                // );
-                renderer.raytrace(&mut encoder, &self.platform.queue);
+                renderer.raytrace(&mut encoder, &self.platform.queue, &view_transform);
                 renderer.blit(&self.platform.device, &mut encoder, &view);
                 renderer.accumulate = true;
 
-                // let mut encoder_gui =
-                //     self.platform.device.inner().create_command_encoder(
-                //         &wgpu::CommandEncoderDescriptor {
-                //             label: Some("encoder-gui"),
-                //         },
-                //     );
-                // Render GUI.
                 let performance = &mut self.gui.windows.performance_info_window;
                 performance.set_global_performance(delta);
 

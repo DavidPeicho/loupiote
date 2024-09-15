@@ -235,20 +235,8 @@ impl ASVGF {
         self.passes.atrous.dispatch(encoder, self.curr_atrou_bindgroup(), &out_texture, &curr_radiance, dispatch_size);
     }
 
-    pub fn end(&mut self, camera: &uniforms::Camera, dispatch_size: &(u32, u32, u32)) {
-        self.prev_model_to_screen = {
-            // todo: Use matrix at an early stage.
-            let aspect = dispatch_size.0 as f32 / dispatch_size.1 as f32;
-            let perspective = glam::Mat4::perspective_lh(camera.v_fov, aspect, 0.01, 100.0);
-
-            let view = {
-                let dir = camera.up.cross(camera.right).normalize().extend(0.0);
-                let rot = glam::Mat4::from_cols(camera.right.normalize().extend(0.0), camera.up.normalize().extend(0.0), dir, glam::Vec4::W);
-                glam::Mat4::from_translation(camera.origin) * rot
-            };
-            let inv_view = view.inverse();
-            perspective * inv_view
-        };
+    pub fn end(&mut self, world_to_screen: &glam::Mat4) {
+        self.prev_model_to_screen = *world_to_screen;
     }
 
     fn curr_gbuffer_bindgroup(&self) -> &wgpu::BindGroup {

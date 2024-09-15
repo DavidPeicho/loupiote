@@ -4,6 +4,7 @@ use albedo_backend::gpu::{self, QueriesOptions};
 
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
 use albedo_rtx::{passes, RadianceParameters};
+use glam::Mat4;
 
 use crate::device::Device;
 use crate::errors::Error;
@@ -181,7 +182,6 @@ pub struct Renderer {
     ray_buffer: gpu::Buffer<Ray>,
     intersection_buffer: gpu::Buffer<Intersection>,
 
-    camera: Camera,
     camera_uniforms: gpu::Buffer<Camera>,
     global_uniforms: PerDrawUniforms,
     global_uniforms_buffer: gpu::Buffer<PerDrawUniforms>,
@@ -247,7 +247,6 @@ impl Renderer {
         Self {
             render_targets,
 
-            camera: Default::default(),
             camera_uniforms: gpu::Buffer::new_uniform(device, 1, None),
             global_uniforms: PerDrawUniforms {
                 frame_count: 1,
@@ -301,12 +300,6 @@ impl Renderer {
         }
     }
 
-    pub fn update_camera(&mut self, origin: glam::Vec3, right: glam::Vec3, up: glam::Vec3) {
-        self.camera.origin = origin;
-        self.camera.right = right;
-        self.camera.up = up;
-    }
-
     pub fn resize(
         &mut self,
         device: &Device,
@@ -348,7 +341,7 @@ impl Renderer {
         );
     }
 
-    pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
+    pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue, view_transform: &Mat4) {
         const STATIC_NUM_BOUNCES: u32 = 3;
         const MOVING_NUM_BOUNCES: u32 = 2;
 
@@ -374,8 +367,13 @@ impl Renderer {
 
         let dispatch_size: (u32, u32, u32) = (self.size.0, self.size.1, 1);
 
-        self.camera.dimensions = [self.size.0, self.size.1];
-        self.camera_uniforms.update(&queue, &[self.camera]);
+        let camera = {
+            let mut camera = Camera{..Default::default()};
+            camera.dimensions = [self.size.0, self.size.1];
+            camera.set_transform(&view_transform);
+            camera
+        };
+        self.camera_uniforms.update(&queue, &[camera]);
         self.global_uniforms.dimensions = [self.size.0, self.size.1];
         self.global_uniforms_buffer
             .update(&queue, &[self.global_uniforms]);
@@ -482,7 +480,9 @@ impl Renderer {
         }
 
         if let Some(asvgf) = self.asvgf.as_mut() {
-            asvgf.end(&self.camera, &dispatch_size);
+            let inv_view = view_transform.inverse();
+            let world_to_screen = camera.perspective(0.01, 100.0) * inv_view;
+            asvgf.end(&world_to_screen);
         }
 
         self.queries.resolve(encoder);
