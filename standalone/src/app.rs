@@ -1,4 +1,5 @@
 use std::{path, sync::Arc, time::Instant};
+use glam::Vec4Swizzles;
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 use image::GenericImageView;
@@ -249,9 +250,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                     .create_view(&wgpu::TextureViewDescriptor::default());
                 let timestamp_period = self.platform.queue.get_timestamp_period();
 
-                // camera_controller.move_speed_factor = 0.35;
-                // camera_controller.set_command(CameraMoveCommand::Left);
-                let (camera_right, camera_up) = self.camera_controller.update(delta);
+                let view_transform = self.camera_controller.update(delta);
 
                 let mut encoder =
                     self.platform.device.inner().create_command_encoder(
@@ -261,7 +260,10 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 let renderer = &mut self.renderer;
                 renderer.queries.start_frame(timestamp_period);
 
-                renderer.update_camera(self.camera_controller.origin, camera_right, camera_up);
+                let cam_right = view_transform.x_axis.xyz();
+                let cam_up = view_transform.y_axis.xyz();
+                let cam_origin = view_transform.w_axis.xyz();
+                renderer.update_camera(cam_origin, cam_right, cam_up);
                 if !self.settings.accumulate || !self.camera_controller.is_static() {
                     renderer.reset_accumulation(&self.platform.queue);
                 }
