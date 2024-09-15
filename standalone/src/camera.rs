@@ -63,7 +63,7 @@ impl CameraController {
         self.commands.remove(enumflags2::BitFlags::from(cmd));
     }
 
-    pub fn update(&mut self, delta: f32) -> (glam::Vec3, glam::Vec3) {
+    pub fn update(&mut self, delta: f32) -> glam::Mat4 {
         let mut right = self.direction.cross(glam::Vec3::Y).normalize();
         let mut up = right.cross(self.direction).normalize();
 
@@ -98,7 +98,10 @@ impl CameraController {
         self.rot_velocity = self.rot_velocity * rot_damping;
         self.move_velocity = self.move_velocity * move_damping;
 
-        return (right, up);
+        let translation = glam::Mat4::from_translation(self.origin);
+        let rot = glam::Mat4::from_cols(right.extend(0.0), up.extend(0.0), self.direction.extend(0.0), glam::Vec4::W);
+        translation * rot
+        // return (right, up);
     }
 
     pub fn is_static(&self) -> bool {

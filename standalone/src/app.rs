@@ -1,4 +1,5 @@
 use std::{path, sync::Arc, time::Instant};
+use glam::Vec4Swizzles;
 
 use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 use image::GenericImageView;
@@ -249,9 +250,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                     .create_view(&wgpu::TextureViewDescriptor::default());
                 let timestamp_period = self.platform.queue.get_timestamp_period();
 
-                // camera_controller.move_speed_factor = 0.35;
-                // camera_controller.set_command(CameraMoveCommand::Left);
-                let (camera_right, camera_up) = self.camera_controller.update(delta);
+                let view_transform = self.camera_controller.update(delta);
 
                 let mut encoder =
                     self.platform.device.inner().create_command_encoder(
@@ -261,7 +260,6 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 let renderer = &mut self.renderer;
                 renderer.queries.start_frame(timestamp_period);
 
-                renderer.update_camera(self.camera_controller.origin, camera_right, camera_up);
                 if !self.settings.accumulate || !self.camera_controller.is_static() {
                     renderer.reset_accumulation(&self.platform.queue);
                 }
@@ -270,23 +268,10 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                 renderer.use_noise_texture(&self.platform.queue, self.settings.use_blue_noise);
                 renderer.set_blit_mode(self.settings.blit_mode);
 
-                // Debug the lightmapper. We need to reset the frame
-                // renderer.reset_accumulation(&self.platform.queue);
-                // renderer.lightmap(
-                //     &mut encoder,
-                //     &self.scene_gpu,
-                // );
-                renderer.raytrace(&mut encoder, &self.platform.queue);
+                renderer.raytrace(&mut encoder, &self.platform.queue, &view_transform);
                 renderer.blit(&self.platform.device, &mut encoder, &view);
                 renderer.accumulate = true;
 
-                // let mut encoder_gui =
-                //     self.platform.device.inner().create_command_encoder(
-                //         &wgpu::CommandEncoderDescriptor {
-                //             label: Some("encoder-gui"),
-                //         },
-                //     );
-                // Render GUI.
                 let performance = &mut self.gui.windows.performance_info_window;
                 performance.set_global_performance(delta);
 

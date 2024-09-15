@@ -62,7 +62,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     let mut gui = gui::GUI::new(&platform.window, &platform.device.inner(), &surface_config);
 
-    let mut camera_controller = camera::CameraController::from_origin_dir(
+    let camera_controller = camera::CameraController::from_origin_dir(
         glam::Vec3::new(0.0, 0.0, 5.0),
         glam::Vec3::new(0.0, 0.0, -1.0),
     );
@@ -100,7 +100,7 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     };
 
     // DEBUG
-    app_context.settings.blit_mode = BlitMode::Temporal;
+    app_context.settings.blit_mode = BlitMode::DenoisedPathrace;
     // END DEBUG
 
     app_context.resize(init_size.width, init_size.height);
