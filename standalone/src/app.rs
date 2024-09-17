@@ -1,7 +1,7 @@
 use std::{path, sync::Arc, time::Instant};
 use glam::Vec4Swizzles;
 
-use albedo_lib::{load_gltf, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
+use albedo_lib::{load_gltf, BlitMode, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 use image::GenericImageView;
 use winit::{application::ApplicationHandler, keyboard::{Key, NamedKey}};
 
@@ -41,6 +41,14 @@ pub struct ApplicationContext {
 }
 
 impl ApplicationContext {
+    pub fn init(&mut self) {
+        self.settings.blit_mode = BlitMode::DenoisedPathrace;
+        self.camera_controller = CameraController::from_origin_dir(
+            glam::Vec3::new(2.0, 0.0, 2.0),
+            glam::Vec3::new(-1.0, 0.0, -1.0).normalize(),
+        );
+    }
+
     pub fn run_command(&mut self, command: commands::EditorCommand) {
         match command {
             commands::EditorCommand::ToggleAccumulation => {

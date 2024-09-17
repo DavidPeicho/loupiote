@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use camera::CameraController;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -62,11 +63,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     let mut gui = gui::GUI::new(&platform.window, &platform.device.inner(), &surface_config);
 
-    let camera_controller = camera::CameraController::from_origin_dir(
-        glam::Vec3::new(0.0, 0.0, 5.0),
-        glam::Vec3::new(0.0, 0.0, -1.0),
-    );
-
     let renderer = Renderer::new(
         &platform.device,
         (init_size.width, init_size.height),
@@ -92,17 +88,13 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         renderer,
         gui,
         settings: Settings::new(),
-        camera_controller,
+        camera_controller: CameraController::new(),
         input_manager: InputManager::new(),
 
         last_time: std::time::Instant::now(),
         event_captured: false,
     };
-
-    // DEBUG
-    app_context.settings.blit_mode = BlitMode::DenoisedPathrace;
-    // END DEBUG
-
+    app_context.init();
     app_context.resize(init_size.width, init_size.height);
 
     app_context.load_blue_noise("./assets/noise_rgb.png");
