@@ -159,7 +159,7 @@ impl GUI {
             });
             rpass.push_debug_group("egui_pass");
             self.renderer
-                .render(&mut rpass, &paint_jobs, &screen_descriptor);
+                .render(&mut rpass.forget_lifetime(), &paint_jobs, &screen_descriptor);
         }
         {
             for id in &textures_delta.free {
