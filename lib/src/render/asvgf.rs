@@ -1,4 +1,4 @@
-use albedo_backend::gpu;
+use albedo_backend::{data::ShaderCache, gpu};
 use albedo_rtx::{passes::{ATrousPass, GBufferPass, TemporalAccumulationPass}, uniforms, Intersection, RTGeometryBindGroupLayout, Ray};
 
 use crate::Device;
@@ -167,13 +167,13 @@ pub(crate) struct ASVGF {
 }
 
 impl ASVGF {
-    pub fn new(device: &Device, size: &(u32, u32), out: &wgpu::TextureView, geometry_layout: &RTGeometryBindGroupLayout, intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) -> Self {
+    pub fn new(device: &Device, spp: &ShaderCache, size: &(u32, u32), out: &wgpu::TextureView, geometry_layout: &RTGeometryBindGroupLayout, intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) -> Self {
         let resources = ScreenResources::new(device, size);
 
         let passes = ASVGFPasses {
-            gbuffer: GBufferPass::new(device, geometry_layout, None),
-            temporal: TemporalAccumulationPass::new(device, None),
-            atrous: ATrousPass::new(device, None),
+            gbuffer: GBufferPass::new(device, spp, geometry_layout, None),
+            temporal: TemporalAccumulationPass::new(device, spp, None),
+            atrous: ATrousPass::new(device, spp, None),
         };
 
         let gbuffer_bindgroup = resources.pingpong.iter().map(|res| {

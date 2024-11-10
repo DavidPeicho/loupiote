@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use albedo_backend::data::ShaderCache;
 use albedo_backend::gpu::{self, QueriesOptions};
 
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
@@ -187,6 +188,7 @@ pub struct Renderer {
     global_uniforms_buffer: gpu::Buffer<PerDrawUniforms>,
     radiance_parameters_buffer: gpu::Buffer<RadianceParameters>,
 
+    pub shaders: ShaderCache,
     pub passes: Passes,
 
     asvgf: Option<ASVGF>,
@@ -234,7 +236,7 @@ impl Renderer {
         let render_targets = RenderTargets::new(device, size);
 
         let intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
-        let ray_buffer = gpu::Buffer::new_storage(
+        let ray_buffer: gpu::Buffer<Ray> = gpu::Buffer::new_storage(
             &device,
             pixel_count as u64,
             Some(gpu::BufferInitDescriptor {
@@ -242,7 +244,31 @@ impl Renderer {
                 usage: wgpu::BufferUsages::STORAGE,
             }),
         );
-        let asvgf = Some(ASVGF::new(device, &size, &render_targets.main, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
+
+        let mut shaders = ShaderCache::new();
+        shaders.add_embedded::<albedo_rtx::shaders::AlbedoRtxShaderImports>();
+
+        let asvgf = Some(ASVGF::new(device, &shaders, &size, &render_targets.main, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
+
+        let passes = Passes {
+            rays: passes::RayPass::new(device, &shaders, None),
+            intersection: passes::IntersectorPass::new(
+                device,
+                &shaders,
+                &geometry_bindgroup_layout,
+                None,
+            ),
+            shading: passes::ShadingPass::new(
+                device,
+                &shaders,
+                &geometry_bindgroup_layout,
+                &surface_bindgroup_layout,
+            ),
+            accumulation: passes::AccumulationPass::new(device, &shaders,None),
+            blit: passes::BlitPass::new(device, &shaders, swapchain_format),
+            lightmap: passes::LightmapPass::new(device, &shaders, swapchain_format),
+            blit_texture: passes::BlitTexturePass::new(device, &shaders, swapchain_format),
+        };
 
         Self {
             render_targets,
@@ -261,23 +287,9 @@ impl Renderer {
 
             global_uniforms_buffer: gpu::Buffer::new_uniform(device, 1, None),
             radiance_parameters_buffer: gpu::Buffer::new_uniform(device, 1, None),
-            passes: Passes {
-                rays: passes::RayPass::new(device, None),
-                intersection: passes::IntersectorPass::new(
-                    device,
-                    &geometry_bindgroup_layout,
-                    None,
-                ),
-                shading: passes::ShadingPass::new(
-                    device,
-                    &geometry_bindgroup_layout,
-                    &surface_bindgroup_layout,
-                ),
-                accumulation: passes::AccumulationPass::new(device, None),
-                blit: passes::BlitPass::new(device, swapchain_format),
-                lightmap: passes::LightmapPass::new(device, swapchain_format),
-                blit_texture: passes::BlitTexturePass::new(device, swapchain_format),
-            },
+
+            shaders,
+            passes,
 
             geometry_bindgroup_layout,
             surface_bindgroup_layout,
@@ -324,7 +336,7 @@ impl Renderer {
         self.set_resources(device, scene_resources, probe);
 
         if self.asvgf.is_some() {
-            self.asvgf = Some(ASVGF::new(device, &self.size, &self.render_targets.main, &self.geometry_bindgroup_layout, &self.intersection_buffer, &self.ray_buffer));
+            self.asvgf = Some(ASVGF::new(device, &mut self.shaders, &self.size, &self.render_targets.main, &self.geometry_bindgroup_layout, &self.intersection_buffer, &self.ray_buffer));
         }
 
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
@@ -687,7 +699,7 @@ impl Renderer {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // @todo: this re-create shaders + pipeline layout + life.
-        let blit_pass = passes::BlitPass::new(device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let blit_pass = passes::BlitPass::new(device, &self.shaders, wgpu::TextureFormat::Rgba8UnormSrgb);
         blit_pass.draw(
             &mut encoder,
             &view,
