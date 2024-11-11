@@ -1,5 +1,4 @@
-use std::{path, sync::Arc, time::Instant};
-use glam::Vec4Swizzles;
+use std::{path::{self, PathBuf}, sync::Arc, time::Instant};
 
 use albedo_lib::{load_gltf, BlitMode, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
 use image::GenericImageView;
@@ -158,6 +157,7 @@ impl ApplicationContext {
                 atlas_max_size: limits.max_texture_dimension_1d,
             },
         )?;
+        log!("GLB loaded!");
         self.scene = scene;
         self.scene_gpu = SceneGPU::new_from_scene(
             &self.scene,
@@ -210,6 +210,10 @@ impl ApplicationContext {
 
     pub fn height(&self) -> u32 {
         self.renderer.get_size().0
+    }
+
+    pub fn reload_shaders(&mut self) {
+        println!("Reload shaders");
     }
 }
 
@@ -381,6 +385,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: crate::Event) {
         match event {
             Event::SaveScreenshot(path) => self.save_screenshot(path),
+            Event::ReloadShaders => self.reload_shaders(),
             Event::Load(load) => match load {
                 LoadEvent::GLTF(data) => self
                     .load_file(&data[..])
