@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use camera::CameraController;
 #[cfg(target_arch = "wasm32")]
@@ -93,6 +93,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
         last_time: std::time::Instant::now(),
         event_captured: false,
+
+        shader_paths: PathBuf::new(),
     };
     app_context.init();
     app_context.resize(init_size.width, init_size.height);
@@ -110,51 +112,27 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
             .unwrap();
     }
 
-    // let mut hotwatch = hotwatch::Hotwatch::new().expect("hotwatch failed to initialize!");
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut filewatch = hotwatch::Hotwatch::new_with_custom_delay(std::time::Duration::from_secs(1)).ok();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // @todo: CLI argument.
+        app_context.shader_paths = {
+            let mut path = PathBuf::new();
+            path.push("../albedo/crates/albedo_rtx/shaders");
+            path
+        };
+        let proxy = app_context.event_loop_proxy.clone();
+        if let Some(watcher) = filewatch.as_mut() {
+            watcher.watch(&app_context.shader_paths, move |_| {
+                proxy.send_event(Event::ReloadShaders).ok();
+            }).ok();
+        };
+    }
+
     // watch_shading_shader(&mut hotwatch, &device, &renderer);
     event_loop.run_app(&mut app_context).unwrap();
-    //     event_loop,
-    //     move |event, target: &EventLoopWindowTarget<Event>| {
-    //         app_context
-    //             .gui
-    //             .handle_event(&app_context.platform.window, &event);
-    //         let event_captured = app_context.gui.captured();
-    //         match event {
-    //             winit::event::Event::UserEvent(event) => ,
-    //             winit::event::Event::WindowEvent {
-    //                 event: winit::event::WindowEvent::Resized(size),
-    //                 ..
-    //             } => {
-    //             }
-
-    //             winit::event::Event::DeviceEvent { event, .. } => match event {
-    //                 winit::event::DeviceEvent::MouseMotion { delta } => {
-    //                     if !event_captured {
-    //                         camera_controller.rotate(
-    //                             (delta.0 / (app_context.width() as f64 * 0.5)) as f32,
-    //                             (delta.1 / (app_context.height() as f64 * 0.5)) as f32,
-    //                         );
-    //                     }
-    //                 }
-    //                 _ => {}
-    //             },
-
-    //             winit::event::Event::WindowEvent { event, .. } => match event {
-
-    //                 }
-    //                 winit::event::WindowEvent::CloseRequested => target.exit(),
-
-    //                 _ => {}
-    //             },
-    //             // winit::event::Event::RedrawEventsCleared => {
-    //             //     #[cfg(not(target_arch = "wasm32"))]
-    //             //     app_context.executor.run_until_stalled();
-    //             //     app_context.platform.window.request_redraw();
-    //             // }
-    //             _ => {}
-    //         }
-    //     },
-    // );
+    println!("Exit");
 }
 
 pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {

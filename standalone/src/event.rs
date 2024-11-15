@@ -8,6 +8,7 @@ pub enum LoadEvent {
 pub enum Event {
     SaveScreenshot(path::PathBuf),
     Load(LoadEvent),
+    ReloadShaders,
 }
 
 pub type EventLoopProxy = winit::event_loop::EventLoopProxy<Event>;

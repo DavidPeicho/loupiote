@@ -65,6 +65,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
 }
 
 pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
+    // @todo: This method is too slow, profile.
     let (doc, buffers, images) = match gltf::import_slice(data) {
         Ok(tuple) => tuple,
         Err(err) => {
