@@ -41,24 +41,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
     log!("                   🚀 Albedo Pathtracer 🚀                   ");
     log!("============================================================\n");
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let mut filewatch = hotwatch::Hotwatch::new_with_custom_delay(std::time::Duration::from_secs(1)).ok();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // @todo: CLI argument
-        let albedo_shaders_path = {
-            let mut path = PathBuf::new();
-            path.push("../albedo/crates/albedo_rtx/shaders");
-            path
-        };
-        let proxy = event_loop_proxy.clone();
-        if let Some(watcher) = filewatch.as_mut() {
-            watcher.watch(&albedo_shaders_path, move |_| {
-                proxy.send_event(Event::ReloadShaders).ok();
-            }).ok();
-        };
-    }
-
     let init_size = platform.window.inner_size();
 
     let caps = platform.surface.get_capabilities(&platform.adapter);
@@ -111,6 +93,8 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
         last_time: std::time::Instant::now(),
         event_captured: false,
+
+        shader_paths: PathBuf::new(),
     };
     app_context.init();
     app_context.resize(init_size.width, init_size.height);
@@ -126,6 +110,24 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         app_context
             .load_file_path("./assets/DamagedHelmet.glb")
             .unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut filewatch = hotwatch::Hotwatch::new_with_custom_delay(std::time::Duration::from_secs(1)).ok();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // @todo: CLI argument.
+        app_context.shader_paths = {
+            let mut path = PathBuf::new();
+            path.push("../albedo/crates/albedo_rtx/shaders");
+            path
+        };
+        let proxy = app_context.event_loop_proxy.clone();
+        if let Some(watcher) = filewatch.as_mut() {
+            watcher.watch(&app_context.shader_paths, move |_| {
+                proxy.send_event(Event::ReloadShaders).ok();
+            }).ok();
+        };
     }
 
     // watch_shading_shader(&mut hotwatch, &device, &renderer);

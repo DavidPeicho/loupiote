@@ -37,6 +37,8 @@ pub struct ApplicationContext {
 
     pub last_time: Instant,
     pub event_captured: bool,
+
+    pub shader_paths: PathBuf,
 }
 
 impl ApplicationContext {
@@ -213,7 +215,9 @@ impl ApplicationContext {
     }
 
     pub fn reload_shaders(&mut self) {
-        println!("Reload shaders");
+        let Some(s) = self.shader_paths.to_str() else { return; };
+        log!("Reloading shaders {}", s);
+        self.renderer.reload_shaders(&self.platform.device, &self.shader_paths);
     }
 }
 

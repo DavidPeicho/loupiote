@@ -1,7 +1,8 @@
 use std::convert::TryInto;
+use std::fmt::Debug;
 
 use albedo_backend::data::ShaderCache;
-use albedo_backend::gpu::{self, QueriesOptions};
+use albedo_backend::gpu::{self, ComputePipeline, QueriesOptions};
 
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
 use albedo_rtx::{passes, RadianceParameters};
@@ -340,6 +341,19 @@ impl Renderer {
         }
 
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
+    }
+
+    pub fn reload_shaders<P: AsRef<std::path::Path> + Debug>(&mut self, device: &Device, directory: P) {
+        println!("Reload shaders {:?}", directory);
+        self.shaders.add_directory(directory).unwrap();
+
+        let mut errors = Vec::new();
+        errors.push(self.passes.shading.recompile(device, &self.shaders));
+
+        println!("Failed to reload shader(s):");
+        for e in &errors {
+            println!("{:?}", e);
+        }
     }
 
     pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
