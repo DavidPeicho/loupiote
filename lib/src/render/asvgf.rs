@@ -177,12 +177,12 @@ impl ASVGF {
         };
 
         let gbuffer_bindgroup = resources.pingpong.iter().map(|res| {
-            passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &resources.motion, intersections)
+            passes.gbuffer.create_frame_bind_groups(device, &res.gbuffer, &resources.motion, intersections)
         }).collect();
 
         let temporal_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
             let previous = &resources.pingpong[1 - i];
-            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
+            passes.temporal.create_frame_bind_groups(device, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
         }).collect();
 
         let atrous_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {

@@ -100,26 +100,22 @@ impl BindGroups {
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
-                size,
                 &ray_buffer,
                 &camera_uniforms.try_into().unwrap(),
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device,
-                size,
                 &intersection_buffer,
                 &ray_buffer,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 device,
-                size,
                 &ray_buffer,
                 &intersection_buffer,
                 &global_uniforms.try_into().unwrap(),
             ),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
-                size,
                 &ray_buffer,
                 global_uniforms,
                 &render_targets.main,
@@ -128,7 +124,6 @@ impl BindGroups {
             ),
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
-                size,
                 &ray_buffer,
                 global_uniforms,
                 &render_targets.second,
