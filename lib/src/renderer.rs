@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Debug;
 
 use albedo_backend::data::ShaderCache;
 use albedo_backend::gpu::{self, ComputePipeline, QueriesOptions};
+use albedo_backend::gpu::AsBindGroup;
 
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
-use albedo_rtx::{passes, RadianceParameters};
+use albedo_rtx::{passes, RadianceParameters, RaytraceDrawResources};
 use glam::Mat4;
 
 use crate::device::Device;
@@ -73,6 +75,7 @@ struct BindGroups {
     generate_ray_pass: wgpu::BindGroup,
     intersection_pass: wgpu::BindGroup,
     shading_pass: wgpu::BindGroup,
+    primary_rays: wgpu::BindGroup,
     accumulate_pass: wgpu::BindGroup,
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
@@ -85,11 +88,8 @@ impl BindGroups {
         device: &Device,
         size: (u32, u32),
         render_targets: &RenderTargets,
-        ray_buffer: &gpu::Buffer<Ray>,
-        intersection_buffer: &gpu::Buffer<Intersection>,
         scene_resources: &SceneGPU,
-        global_uniforms: &gpu::Buffer<PerDrawUniforms>,
-        camera_uniforms: &gpu::Buffer<Camera>,
+        resources: &RaytraceDrawResources,
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPass,
@@ -97,35 +97,41 @@ impl BindGroups {
         blit_pass: &passes::BlitPass,
         lightmap_pass: &passes::LightmapPass,
     ) -> Self {
+        let prim_rays_defines = {
+            let mut h = HashMap::new();
+            h.insert("EMIT_GBUFFER".to_string(), "".to_string());
+            h
+        };
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
-                &ray_buffer,
-                &camera_uniforms.try_into().unwrap(),
+                resources.rays,
+                resources.camera_uniforms,
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device,
-                &intersection_buffer,
-                &ray_buffer,
+                resources.intersections,
+                resources.rays,
             ),
             shading_pass: shading_pass_desc.create_frame_bind_groups(
                 device,
-                &ray_buffer,
-                &intersection_buffer,
-                &global_uniforms.try_into().unwrap(),
+                resources.rays,
+                resources.intersections,
+                resources.global_uniforms,
             ),
+            primary_rays: shading_pass_desc.as_bind_group(device, &prim_rays_defines, resources).unwrap(),
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
-                &ray_buffer,
-                global_uniforms,
+                resources.rays,
+                resources.global_uniforms,
                 &render_targets.main,
                 &render_targets.second,
                 &device.sampler_nearest(),
             ),
             accumulate_pass2: accumulation_pass_desc.create_frame_bind_groups(
                 device,
-                &ray_buffer,
-                global_uniforms,
+                resources.rays,
+                resources.global_uniforms,
                 &render_targets.second,
                 &render_targets.main,
                 &device.sampler_nearest(),
@@ -134,13 +140,13 @@ impl BindGroups {
                 device,
                 &render_targets.main,
                 &device.sampler_nearest(),
-                global_uniforms,
+                resources.global_uniforms,
             ),
             blit_pass2: blit_pass.create_frame_bind_groups(
                 device,
                 &render_targets.second,
                 &device.sampler_nearest(),
-                global_uniforms,
+                resources.global_uniforms,
             ),
             lightmap_pass: lightmap_pass.create_frame_bind_groups(
                 device,
@@ -148,7 +154,7 @@ impl BindGroups {
                 &scene_resources.bvh_buffer.inner(),
                 &scene_resources.index_buffer,
                 &scene_resources.vertex_buffer.inner(),
-                global_uniforms,
+                resources.global_uniforms,
             )
         }
     }
@@ -158,6 +164,7 @@ pub struct Passes {
     pub rays: passes::RayPass,
     pub intersection: passes::IntersectorPass,
     pub shading: passes::ShadingPass,
+    pub primary_rays: passes::ShadingPass,
     pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
     pub lightmap: passes::LightmapPass,
@@ -255,6 +262,12 @@ impl Renderer {
                 None,
             ),
             shading: passes::ShadingPass::new(
+                device,
+                &shaders,
+                &geometry_bindgroup_layout,
+                &surface_bindgroup_layout,
+            ),
+            primary_rays: passes::ShadingPass::new(
                 device,
                 &shaders,
                 &geometry_bindgroup_layout,
@@ -762,15 +775,20 @@ impl Renderer {
         scene_resources: &SceneGPU,
         size: (u32, u32),
     ) -> BindGroups {
+        let resources = RaytraceDrawResources {
+            rays: self.ray_buffer.as_storage_slice().unwrap(),
+            intersections: self.intersection_buffer.as_storage_slice().unwrap(),
+            global_uniforms: self.global_uniforms_buffer.as_uniform_slice().unwrap(),
+            camera_uniforms: self.camera_uniforms.as_uniform_slice().unwrap(),
+            gbuffer: None,
+            motion: None
+        };
         BindGroups::new(
             device,
             size,
             &self.render_targets,
-            &self.ray_buffer,
-            &self.intersection_buffer,
             &scene_resources,
-            &self.global_uniforms_buffer,
-            &self.camera_uniforms,
+            &resources,
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,
