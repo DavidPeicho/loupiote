@@ -1,14 +1,13 @@
-use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fmt::Debug;
 
 use albedo_backend::data::ShaderCache;
-use albedo_backend::gpu::{self, ComputePipeline, QueriesOptions};
-use albedo_backend::gpu::AsBindGroup;
+use albedo_backend::gpu::{self, QueriesOptions};
 
+use albedo_rtx::passes::ShadingPass;
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
-use albedo_rtx::{passes, RadianceParameters, RaytraceDrawResources};
+use albedo_rtx::{passes, DenoiseResources, RadianceParameters, RaytraceResources};
 use glam::Mat4;
+use wgpu::naga::FastHashMap;
 
 use crate::device::Device;
 use crate::errors::Error;
@@ -75,7 +74,7 @@ struct BindGroups {
     generate_ray_pass: wgpu::BindGroup,
     intersection_pass: wgpu::BindGroup,
     shading_pass: wgpu::BindGroup,
-    primary_rays: wgpu::BindGroup,
+    primary_rays: [wgpu::BindGroup; 2],
     accumulate_pass: wgpu::BindGroup,
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
@@ -86,22 +85,20 @@ struct BindGroups {
 impl BindGroups {
     fn new(
         device: &Device,
-        size: (u32, u32),
         render_targets: &RenderTargets,
         scene_resources: &SceneGPU,
-        resources: &RaytraceDrawResources,
+        resources: &RaytraceResources,
+        denoise_res: &DenoiseResources,
         ray_pass_desc: &passes::RayPass,
         intersector_pass_desc: &passes::IntersectorPass,
         shading_pass_desc: &passes::ShadingPass,
+        primary_rays_pass_desc: &passes::PrimaryRayPass,
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
         lightmap_pass: &passes::LightmapPass,
     ) -> Self {
-        let prim_rays_defines = {
-            let mut h = HashMap::new();
-            h.insert("EMIT_GBUFFER".to_string(), "".to_string());
-            h
-        };
+        let denoise_pong = denoise_res.pong();
+
         BindGroups {
             generate_ray_pass: ray_pass_desc.create_frame_bind_groups(
                 device,
@@ -113,13 +110,15 @@ impl BindGroups {
                 resources.intersections,
                 resources.rays,
             ),
-            shading_pass: shading_pass_desc.create_frame_bind_groups(
+            shading_pass: shading_pass_desc.bgl.as_bind_group(
                 device,
-                resources.rays,
-                resources.intersections,
-                resources.global_uniforms,
+                resources,
+                None
             ),
-            primary_rays: shading_pass_desc.as_bind_group(device, &prim_rays_defines, resources).unwrap(),
+            primary_rays: [
+                primary_rays_pass_desc.bgl.as_bind_group(device, resources, Some(denoise_res)),
+                primary_rays_pass_desc.bgl.as_bind_group(device, resources, Some(&denoise_pong)),
+            ],
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
                 resources.rays,
@@ -164,7 +163,7 @@ pub struct Passes {
     pub rays: passes::RayPass,
     pub intersection: passes::IntersectorPass,
     pub shading: passes::ShadingPass,
-    pub primary_rays: passes::ShadingPass,
+    pub primary_rays: passes::PrimaryRayPass,
     pub accumulation: passes::AccumulationPass,
     pub blit: passes::BlitPass,
     pub lightmap: passes::LightmapPass,
@@ -212,6 +211,8 @@ pub struct Renderer {
     mode: BlitMode,
     frame_back: bool,
 
+    prev_model_to_screen: glam::Mat4,
+
     pub downsample_factor: f32,
     pub accumulate: bool,
     pub queries: gpu::Queries,
@@ -251,7 +252,8 @@ impl Renderer {
         let mut shaders = ShaderCache::new();
         shaders.add_embedded::<albedo_rtx::shaders::AlbedoRtxShaderImports>();
 
-        let asvgf = Some(ASVGF::new(device, &shaders, &size, &render_targets.main, &geometry_bindgroup_layout, &intersection_buffer, &ray_buffer));
+        let empty_defines = FastHashMap::default();
+        let asvgf = Some(ASVGF::new(device, &shaders, &size, &render_targets.main, &ray_buffer));
 
         let passes = Passes {
             rays: passes::RayPass::new(device, &shaders, None),
@@ -261,13 +263,14 @@ impl Renderer {
                 &geometry_bindgroup_layout,
                 None,
             ),
-            shading: passes::ShadingPass::new(
+            shading: passes::ShadingPass::new_inlined(
                 device,
                 &shaders,
+                &empty_defines,
                 &geometry_bindgroup_layout,
                 &surface_bindgroup_layout,
             ),
-            primary_rays: passes::ShadingPass::new(
+            primary_rays: passes::PrimaryRayPass::new_inlined(
                 device,
                 &shaders,
                 &geometry_bindgroup_layout,
@@ -316,6 +319,8 @@ impl Renderer {
             frame_back: true,
             mode: BlitMode::Pahtrace,
 
+            prev_model_to_screen: glam::Mat4::IDENTITY,
+
             queries: gpu::Queries::new(device, QueriesOptions::new(10)),
             accumulate: false,
         }
@@ -342,12 +347,10 @@ impl Renderer {
         self.intersection_buffer = gpu::Buffer::new_storage(device, pixel_count, None);
         // TODO: Only resize if bigger.
         self.render_targets = RenderTargets::new(device, self.size);
-        self.set_resources(device, scene_resources, probe);
-
         if self.asvgf.is_some() {
-            self.asvgf = Some(ASVGF::new(device, &mut self.shaders, &self.size, &self.render_targets.main, &self.geometry_bindgroup_layout, &self.intersection_buffer, &self.ray_buffer));
+            self.asvgf = Some(ASVGF::new(device, &mut self.shaders, &self.size, &self.render_targets.main, &self.ray_buffer));
         }
-
+        self.set_resources(device, scene_resources, probe);
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
     }
 
@@ -355,13 +358,11 @@ impl Renderer {
         println!("Reload shaders {:?}", directory);
         self.shaders.add_directory(directory).unwrap();
 
-        let mut errors = Vec::new();
-        errors.push(self.passes.shading.recompile(device, &self.shaders));
-
-        println!("Failed to reload shader(s):");
-        for e in &errors {
-            println!("{:?}", e);
-        }
+        let empty_defines = FastHashMap::default();
+        match ShadingPass::new(device,  &self.shaders, &empty_defines, &self.geometry_bindgroup_layout, &self.surface_bindgroup_layout) {
+            Ok(pass) => self.passes.shading = pass,
+            Err(e) => println!("Failed to reload shading.comp, reason:\n{:?}", e)
+        };
     }
 
     pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
@@ -439,24 +440,25 @@ impl Renderer {
 
         if let Some(asvgf) = self.asvgf.as_mut() {
             asvgf.start();
-            asvgf.gbuffer_pass(encoder, geometry_bindgroup, &dispatch_size);
+            // Step 3:
+            //
+            // First shading ray
+            self.queries.start("shading 0", encoder);
+            self.passes.primary_rays.dispatch(
+                encoder,
+                geometry_bindgroup,
+                surface_bindgroup,
+                &bindgroups.primary_rays[asvgf.curr_frame()],
+                dispatch_size,
+                &self.prev_model_to_screen
+            );
+            self.queries.end(encoder);
         }
 
-        // Step 3:
-        //
-        // First shading ray
-        self.queries.start("shading 0", encoder);
-        self.passes.shading.dispatch(
-            encoder,
-            geometry_bindgroup,
-            surface_bindgroup,
-            &bindgroups.shading_pass,
-            dispatch_size,
-        );
-        self.queries.end(encoder);
 
         // Alternate between intersection & shading.
-        for i in 1..nb_bounces {
+        let start_bounce = if self.asvgf.is_none() { 0 } else { 1 };
+        for i in start_bounce..nb_bounces {
             // @todo: Use dynamic offset
             self.global_uniforms.seed += 1;
             self.global_uniforms.bounces = i;
@@ -513,10 +515,10 @@ impl Renderer {
             _ => {}
         }
 
-        if let Some(asvgf) = self.asvgf.as_mut() {
+        if let Some(_) = self.asvgf.as_mut() {
             let inv_view = view_transform.inverse();
             let world_to_screen = camera.perspective(0.01, 100.0) * inv_view;
-            asvgf.end(&world_to_screen);
+            self.prev_model_to_screen = world_to_screen;
         }
 
         self.queries.resolve(encoder);
@@ -660,8 +662,7 @@ impl Renderer {
             _ => device.default_textures().filterable_2d(),
         };
 
-        self.frame_bindgroups =
-            Some(self.create_bind_groups(device, scene_resources, self.size));
+        self.frame_bindgroups = Some(self.create_bind_groups(device, scene_resources));
         self.geometry_bindgroup = Some(self.geometry_bindgroup_layout.create_bindgroup(
             device,
             scene_resources.bvh_buffer.as_storage_slice().unwrap(),
@@ -773,25 +774,29 @@ impl Renderer {
         &self,
         device: &Device,
         scene_resources: &SceneGPU,
-        size: (u32, u32),
     ) -> BindGroups {
-        let resources = RaytraceDrawResources {
+        let resources = RaytraceResources {
             rays: self.ray_buffer.as_storage_slice().unwrap(),
             intersections: self.intersection_buffer.as_storage_slice().unwrap(),
             global_uniforms: self.global_uniforms_buffer.as_uniform_slice().unwrap(),
             camera_uniforms: self.camera_uniforms.as_uniform_slice().unwrap(),
-            gbuffer: None,
-            motion: None
+        };
+        let asvgf = self.asvgf.as_ref().unwrap();
+        let denoise_res = DenoiseResources {
+            gbuffer_current: &asvgf.resources.pingpong[0].gbuffer,
+            gbuffer_previous: &asvgf.resources.pingpong[1].gbuffer,
+            motion: &asvgf.resources.motion
         };
         BindGroups::new(
             device,
-            size,
             &self.render_targets,
             &scene_resources,
             &resources,
+            &denoise_res,
             &self.passes.rays,
             &self.passes.intersection,
             &self.passes.shading,
+            &self.passes.primary_rays,
             &self.passes.accumulation,
             &self.passes.blit,
             &self.passes.lightmap
