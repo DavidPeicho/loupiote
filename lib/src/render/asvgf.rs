@@ -1,5 +1,5 @@
 use albedo_backend::{data::ShaderCache, gpu};
-use albedo_rtx::{passes::{ATrousPass, GBufferPass, TemporalAccumulationPass}, uniforms, Intersection, RTGeometryBindGroupLayout, Ray};
+use albedo_rtx::{passes::{ATrousPass, TemporalAccumulationPass}, Ray};
 
 use crate::Device;
 
@@ -148,7 +148,6 @@ impl ScreenResources {
 }
 
 pub struct ASVGFPasses {
-    pub gbuffer: albedo_rtx::passes::GBufferPass,
     pub temporal: albedo_rtx::passes::TemporalAccumulationPass,
     pub atrous: albedo_rtx::passes::ATrousPass,
 }
@@ -157,32 +156,24 @@ pub(crate) struct ASVGF {
     pub resources: ScreenResources,
 
     pub passes: ASVGFPasses,
-    pub gbuffer_bindgroup: Vec<wgpu::BindGroup>,
     pub temporal_bindgroup: Vec<wgpu::BindGroup>,
     pub atrous_bindgroup: Vec<[wgpu::BindGroup; 2]>,
 
     current_frame_back: bool,
-
-    prev_model_to_screen: glam::Mat4
 }
 
 impl ASVGF {
-    pub fn new(device: &Device, spp: &ShaderCache, size: &(u32, u32), out: &wgpu::TextureView, geometry_layout: &RTGeometryBindGroupLayout, intersections: &gpu::Buffer<Intersection>, rays: &gpu::Buffer<Ray>) -> Self {
+    pub fn new(device: &Device, spp: &ShaderCache, size: &(u32, u32), out: &wgpu::TextureView, rays: &gpu::Buffer<Ray>) -> Self {
         let resources = ScreenResources::new(device, size);
 
         let passes = ASVGFPasses {
-            gbuffer: GBufferPass::new(device, spp, geometry_layout, None),
             temporal: TemporalAccumulationPass::new(device, spp, None),
             atrous: ATrousPass::new(device, spp, None),
         };
 
-        let gbuffer_bindgroup = resources.pingpong.iter().map(|res| {
-            passes.gbuffer.create_frame_bind_groups(device, size, &res.gbuffer, &resources.motion, intersections)
-        }).collect();
-
         let temporal_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
             let previous = &resources.pingpong[1 - i];
-            passes.temporal.create_frame_bind_groups(device, size, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
+            passes.temporal.create_frame_bind_groups(device, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
         }).collect();
 
         let atrous_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
@@ -193,22 +184,16 @@ impl ASVGF {
         Self {
             resources,
 
-            gbuffer_bindgroup,
             temporal_bindgroup,
             atrous_bindgroup,
 
             passes,
-            current_frame_back: true,
-            prev_model_to_screen: glam::Mat4::IDENTITY
+            current_frame_back: true
         }
     }
 
     pub fn start(&mut self) {
         self.current_frame_back = !self.current_frame_back;
-    }
-
-    pub fn gbuffer_pass(&mut self, encoder: &mut wgpu::CommandEncoder, geometry_bindgroup: &wgpu::BindGroup, dispatch_size: &(u32, u32, u32)) {
-        self.passes.gbuffer.dispatch(encoder, &geometry_bindgroup,self.curr_gbuffer_bindgroup(), dispatch_size, &self.prev_model_to_screen);
     }
 
     pub fn temporal_pass(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32)) {
@@ -235,13 +220,10 @@ impl ASVGF {
         self.passes.atrous.dispatch(encoder, self.curr_atrou_bindgroup(), &out_texture, &curr_radiance, dispatch_size);
     }
 
-    pub fn end(&mut self, world_to_screen: &glam::Mat4) {
-        self.prev_model_to_screen = *world_to_screen;
+    pub fn curr_frame(&self) -> usize {
+        self.current_frame_back as usize
     }
 
-    fn curr_gbuffer_bindgroup(&self) -> &wgpu::BindGroup {
-        &self.gbuffer_bindgroup[self.current_frame_back as usize]
-    }
     fn curr_temporal_bindgroup(&self) -> &wgpu::BindGroup {
         &self.temporal_bindgroup[self.current_frame_back as usize]
     }
