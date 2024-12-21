@@ -1,5 +1,5 @@
 use albedo_backend::{data::ShaderCache, gpu};
-use albedo_rtx::{passes::{ATrousPass, TemporalAccumulationPass}, Ray};
+use albedo_rtx::{passes::{ATrousPass, CompositingPass, TemporalAccumulationPass}, Ray};
 
 use crate::Device;
 
@@ -150,6 +150,7 @@ impl ScreenResources {
 pub struct ASVGFPasses {
     pub temporal: albedo_rtx::passes::TemporalAccumulationPass,
     pub atrous: albedo_rtx::passes::ATrousPass,
+    pub composit: albedo_rtx::passes::CompositingPass,
 }
 
 pub(crate) struct ASVGF {
@@ -169,6 +170,7 @@ impl ASVGF {
         let passes = ASVGFPasses {
             temporal: TemporalAccumulationPass::new(device, spp, None),
             atrous: ATrousPass::new(device, spp, None),
+            composit: CompositingPass::new_inlined(device, spp)
         };
 
         let temporal_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
@@ -217,7 +219,19 @@ impl ASVGF {
             aspect: wgpu::TextureAspect::All,
         }, self.resources.radiance_img_temp.size());
 
-        self.passes.atrous.dispatch(encoder, self.curr_atrou_bindgroup(), &out_texture, &curr_radiance, dispatch_size);
+        let atrou_bindgroups = self.curr_atrou_bindgroup();
+        self.passes.atrous.dispatch(encoder, atrou_bindgroups, &out_texture, &curr_radiance, dispatch_size);
+
+        // A-Trous uses an even number of calls, so result is in `radiance_img_temp`
+        // Thus, re-using the first a-trou bind group is fine
+        self.passes.composit.dispatch(encoder, &atrou_bindgroups[0], dispatch_size);
+    }
+
+    pub fn reload_shaders(&mut self, device: &wgpu::Device, spp: &ShaderCache) {
+        match CompositingPass::new(device, spp) {
+            Ok(pass) => self.passes.composit = pass,
+            Err(e) => println!("Failed to reload compositing pass (compositing.comp), reason:\n{:?}", e)
+        };
     }
 
     pub fn curr_frame(&self) -> usize {

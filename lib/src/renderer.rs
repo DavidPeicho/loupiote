@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use albedo_backend::data::ShaderCache;
 use albedo_backend::gpu::{self, QueriesOptions};
 
-use albedo_rtx::passes::ShadingPass;
+use albedo_rtx::passes::{PrimaryRayPass, ShadingPass};
 use albedo_rtx::uniforms::{Camera, Intersection, PerDrawUniforms, Ray, Uniform};
 use albedo_rtx::{passes, DenoiseResources, RadianceParameters, RaytraceResources};
 use glam::Mat4;
@@ -358,11 +358,21 @@ impl Renderer {
         println!("Reload shaders {:?}", directory);
         self.shaders.add_directory(directory).unwrap();
 
+        // TODO: This assumes that the bind group layout doesn't change.
+
         let empty_defines = FastHashMap::default();
         match ShadingPass::new(device,  &self.shaders, &empty_defines, &self.geometry_bindgroup_layout, &self.surface_bindgroup_layout) {
             Ok(pass) => self.passes.shading = pass,
             Err(e) => println!("Failed to reload shading.comp, reason:\n{:?}", e)
         };
+        match PrimaryRayPass::new(device, &self.shaders, &self.geometry_bindgroup_layout, &self.surface_bindgroup_layout) {
+            Ok(pass) => self.passes.primary_rays = pass,
+            Err(e) => println!("Failed to reload primary rays (shading.comp), reason:\n{:?}", e)
+        };
+
+        if let Some(asvgf) = self.asvgf.as_mut() {
+            asvgf.reload_shaders(device, &self.shaders);
+        }
     }
 
     pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
@@ -454,7 +464,6 @@ impl Renderer {
             );
             self.queries.end(encoder);
         }
-
 
         // Alternate between intersection & shading.
         let start_bounce = if self.asvgf.is_none() { 0 } else { 1 };
