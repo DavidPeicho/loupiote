@@ -1,10 +1,6 @@
 use albedo_backend::gpu;
-use albedo_bvh::{builders, BLASArray, BVHNode};
-use albedo_rtx::texture;
-use albedo_rtx::uniforms::{Instance, Light, Material, Vertex};
-
-use crate::Error;
-use crate::ProxyMesh;
+use albedo_rtx::uniforms::{BVHNode, Instance, Light, Material, Vertex};
+use albedo_rtx::{texture, BLASArray, BVHPrimitive};
 
 pub struct ImageData {
     data: Vec<u8>,
@@ -31,64 +27,9 @@ impl ImageData {
     }
 }
 
-pub struct BLAS {
-    inner: albedo_bvh::BLASArray,
-    pub vertices: Vec<Vertex>,
-}
-
-impl BLAS {
-    pub fn new(meshes: &[ProxyMesh]) -> Result<BLAS, crate::Error> {
-        let mut builder: builders::SAHBuilder = builders::SAHBuilder::new();
-        let blas =
-            BLASArray::new(&meshes, &mut builder).or_else(|e| Err(Error::AccelBuild(e.into())))?;
-
-        let mut vertices = Vec::with_capacity(blas.vertex_count());
-        for mesh in meshes {
-            for v in 0..mesh.positions.len() {
-                let pos = mesh.positions[v as usize];
-                let normal = mesh.normals[v as usize];
-                let uv = match &mesh.uvs {
-                    Some(u) => u[v as usize],
-                    None => [0.0, 0.0],
-                };
-                // @todo: this assumes normal are always available.
-                vertices.push(Vertex {
-                    position: [pos[0], pos[1], pos[2], uv[0]],
-                    normal: [normal[0], normal[1], normal[2], uv[1]],
-                });
-            }
-        }
-        Ok(Self {
-            inner: blas,
-            vertices,
-        })
-    }
-}
-
-impl Default for BLAS {
-    fn default() -> Self {
-        Self {
-            inner: BLASArray::empty(),
-            vertices: vec![Vertex {
-                ..Default::default()
-            }],
-        }
-    }
-}
-
-impl std::ops::Deref for BLAS {
-    type Target = BLASArray;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
 pub struct Scene {
-    pub meshes: Vec<ProxyMesh>,
-    pub instances: Vec<Instance>,
     pub materials: Vec<Material>,
-    pub blas: BLAS,
+    pub blas: BLASArray,
     pub lights: Vec<Light>,
     pub atlas: Option<texture::TextureAtlas>,
 }
@@ -96,15 +37,15 @@ pub struct Scene {
 impl Default for Scene {
     fn default() -> Self {
         Self {
-            meshes: vec![],
-            instances: vec![Instance {
-                ..Default::default()
-            }],
             materials: vec![Material {
                 ..Default::default()
             }],
-            blas: BLAS {
-                ..Default::default()
+            blas: BLASArray {
+                entries: vec![Default::default()],
+                nodes: vec![Default::default()],
+                primitives: vec![Default::default()],
+                vertices: vec![Default::default()],
+                instances: vec![Default::default()],
             },
             lights: vec![Light::new()],
             atlas: None,
@@ -223,7 +164,7 @@ pub struct SceneGPU {
     pub instance_buffer: gpu::Buffer<Instance>,
     pub materials_buffer: gpu::Buffer<Material>,
     pub bvh_buffer: gpu::Buffer<BVHNode>,
-    pub index_buffer: gpu::Buffer<u32>,
+    pub bvh_tri_buffer: gpu::Buffer<BVHPrimitive>,
     pub vertex_buffer: gpu::Buffer<Vertex>,
     pub light_buffer: gpu::Buffer<Light>,
     pub atlas: Option<TextureAtlasGPU>,
@@ -293,7 +234,7 @@ impl SceneGPU {
         instances: &[Instance],
         materials: &[Material],
         bvh: &[BVHNode],
-        indices: &[u32],
+        bvh_tris: &[BVHPrimitive],
         vertices: &[Vertex],
         lights: &[Light],
     ) -> Self {
@@ -301,14 +242,7 @@ impl SceneGPU {
             instance_buffer: gpu::Buffer::new_storage_with_data(&device, instances, None),
             materials_buffer: gpu::Buffer::new_storage_with_data(&device, materials, None),
             bvh_buffer: gpu::Buffer::new_storage_with_data(&device, bvh, None),
-            index_buffer: gpu::Buffer::new_storage_with_data(
-                &device,
-                indices,
-                Some(gpu::BufferInitDescriptor {
-                    label: None,
-                    usage: wgpu::BufferUsages::INDEX,
-                }),
-            ),
+            bvh_tri_buffer: gpu::Buffer::new_storage_with_data(&device, bvh_tris, None),
             vertex_buffer: gpu::Buffer::new_storage_with_data(
                 &device,
                 vertices,
@@ -325,17 +259,21 @@ impl SceneGPU {
     pub fn new_from_scene(scene: &Scene, device: &wgpu::Device, queue: &wgpu::Queue) -> SceneGPU {
         let mut resources = SceneGPU::new(
             device,
-            &scene.instances,
+            &scene.blas.instances,
             &scene.materials,
             &scene.blas.nodes,
-            &scene.blas.indices,
+            &scene.blas.primitives,
             &scene.blas.vertices,
             &scene.lights,
         );
-        resources.instance_buffer.update(&queue, &scene.instances);
+        resources
+            .instance_buffer
+            .update(&queue, &scene.blas.instances);
         resources.materials_buffer.update(&queue, &scene.materials);
         resources.bvh_buffer.update(&queue, &scene.blas.nodes);
-        resources.index_buffer.update(&queue, &scene.blas.indices);
+        resources
+            .bvh_tri_buffer
+            .update(&queue, &scene.blas.primitives);
         resources.vertex_buffer.update(&queue, &scene.blas.vertices);
         resources.light_buffer.update(&queue, &scene.lights);
 

@@ -11,17 +11,14 @@ use wgpu::naga::FastHashMap;
 
 use crate::device::Device;
 use crate::errors::Error;
-use crate::scene::SceneGPU;
 use crate::render::ASVGF;
+use crate::scene::SceneGPU;
 use crate::ProbeGPU;
 
 fn get_downsampled_size(size: &(u32, u32), factor: f32) -> (u32, u32) {
     let w = size.0 as f32;
     let h = size.1 as f32;
-    (
-        (w * factor) as u32,
-        (h * factor) as u32,
-    )
+    ((w * factor) as u32, (h * factor) as u32)
 }
 
 struct RenderTargets {
@@ -79,14 +76,12 @@ struct BindGroups {
     accumulate_pass2: wgpu::BindGroup,
     blit_pass: wgpu::BindGroup,
     blit_pass2: wgpu::BindGroup,
-    lightmap_pass: wgpu::BindGroup,
 }
 
 impl BindGroups {
     fn new(
         device: &Device,
         render_targets: &RenderTargets,
-        scene_resources: &SceneGPU,
         resources: &RaytraceResources,
         denoise_res: &DenoiseResources,
         ray_pass_desc: &passes::RayPass,
@@ -95,7 +90,6 @@ impl BindGroups {
         primary_rays_pass_desc: &passes::PrimaryRayPass,
         accumulation_pass_desc: &passes::AccumulationPass,
         blit_pass: &passes::BlitPass,
-        lightmap_pass: &passes::LightmapPass,
     ) -> Self {
         let denoise_pong = denoise_res.pong();
 
@@ -110,14 +104,14 @@ impl BindGroups {
                 resources.intersections,
                 resources.rays,
             ),
-            shading_pass: shading_pass_desc.bgl.as_bind_group(
-                device,
-                resources,
-                None
-            ),
+            shading_pass: shading_pass_desc.bgl.as_bind_group(device, resources, None),
             primary_rays: [
-                primary_rays_pass_desc.bgl.as_bind_group(device, resources, Some(denoise_res)),
-                primary_rays_pass_desc.bgl.as_bind_group(device, resources, Some(&denoise_pong)),
+                primary_rays_pass_desc
+                    .bgl
+                    .as_bind_group(device, resources, Some(denoise_res)),
+                primary_rays_pass_desc
+                    .bgl
+                    .as_bind_group(device, resources, Some(&denoise_pong)),
             ],
             accumulate_pass: accumulation_pass_desc.create_frame_bind_groups(
                 device,
@@ -147,14 +141,6 @@ impl BindGroups {
                 &device.sampler_nearest(),
                 resources.global_uniforms,
             ),
-            lightmap_pass: lightmap_pass.create_frame_bind_groups(
-                device,
-                &scene_resources.instance_buffer,
-                &scene_resources.bvh_buffer.inner(),
-                &scene_resources.index_buffer,
-                &scene_resources.vertex_buffer.inner(),
-                resources.global_uniforms,
-            )
         }
     }
 }
@@ -230,7 +216,11 @@ impl Renderer {
         .fold(0, |max, &val| std::cmp::max(max, val))
     }
 
-    pub fn new(device: &Device, original_size: (u32, u32), swapchain_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &Device,
+        original_size: (u32, u32),
+        swapchain_format: wgpu::TextureFormat,
+    ) -> Self {
         let downsample_factor = 0.5;
         let size = get_downsampled_size(&original_size, downsample_factor);
         let pixel_count: u64 = size.0 as u64 * size.1 as u64;
@@ -253,7 +243,13 @@ impl Renderer {
         shaders.add_embedded::<albedo_rtx::shaders::AlbedoRtxShaderImports>();
 
         let empty_defines = FastHashMap::default();
-        let asvgf = Some(ASVGF::new(device, &shaders, &size, &render_targets.main, &ray_buffer));
+        let asvgf = Some(ASVGF::new(
+            device,
+            &shaders,
+            &size,
+            &render_targets.main,
+            &ray_buffer,
+        ));
 
         let passes = Passes {
             rays: passes::RayPass::new(device, &shaders, None),
@@ -276,7 +272,7 @@ impl Renderer {
                 &geometry_bindgroup_layout,
                 &surface_bindgroup_layout,
             ),
-            accumulation: passes::AccumulationPass::new(device, &shaders,None),
+            accumulation: passes::AccumulationPass::new(device, &shaders, None),
             blit: passes::BlitPass::new(device, &shaders, swapchain_format),
             lightmap: passes::LightmapPass::new(device, &shaders, swapchain_format),
             blit_texture: passes::BlitTexturePass::new(device, &shaders, swapchain_format),
@@ -348,26 +344,50 @@ impl Renderer {
         // TODO: Only resize if bigger.
         self.render_targets = RenderTargets::new(device, self.size);
         if self.asvgf.is_some() {
-            self.asvgf = Some(ASVGF::new(device, &mut self.shaders, &self.size, &self.render_targets.main, &self.ray_buffer));
+            self.asvgf = Some(ASVGF::new(
+                device,
+                &mut self.shaders,
+                &self.size,
+                &self.render_targets.main,
+                &self.ray_buffer,
+            ));
         }
         self.set_resources(device, scene_resources, probe);
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
     }
 
-    pub fn reload_shaders<P: AsRef<std::path::Path> + Debug>(&mut self, device: &Device, directory: P) {
+    pub fn reload_shaders<P: AsRef<std::path::Path> + Debug>(
+        &mut self,
+        device: &Device,
+        directory: P,
+    ) {
         println!("Reload shaders {:?}", directory);
         self.shaders.add_directory(directory).unwrap();
 
         // TODO: This assumes that the bind group layout doesn't change.
 
         let empty_defines = FastHashMap::default();
-        match ShadingPass::new(device,  &self.shaders, &empty_defines, &self.geometry_bindgroup_layout, &self.surface_bindgroup_layout) {
+        match ShadingPass::new(
+            device,
+            &self.shaders,
+            &empty_defines,
+            &self.geometry_bindgroup_layout,
+            &self.surface_bindgroup_layout,
+        ) {
             Ok(pass) => self.passes.shading = pass,
-            Err(e) => println!("Failed to reload shading.comp, reason:\n{:?}", e)
+            Err(e) => println!("Failed to reload shading.comp, reason:\n{:?}", e),
         };
-        match PrimaryRayPass::new(device, &self.shaders, &self.geometry_bindgroup_layout, &self.surface_bindgroup_layout) {
+        match PrimaryRayPass::new(
+            device,
+            &self.shaders,
+            &self.geometry_bindgroup_layout,
+            &self.surface_bindgroup_layout,
+        ) {
             Ok(pass) => self.passes.primary_rays = pass,
-            Err(e) => println!("Failed to reload primary rays (shading.comp), reason:\n{:?}", e)
+            Err(e) => println!(
+                "Failed to reload primary rays (shading.comp), reason:\n{:?}",
+                e
+            ),
         };
 
         if let Some(asvgf) = self.asvgf.as_mut() {
@@ -375,18 +395,12 @@ impl Renderer {
         }
     }
 
-    pub fn lightmap(&mut self, encoder: &mut wgpu::CommandEncoder, scene_resources: &SceneGPU) {
-        self.passes.lightmap.draw(
-            encoder,
-            &self.render_targets.main,
-            &self.frame_bindgroups.as_ref().unwrap().lightmap_pass,
-            &scene_resources.instance_buffer,
-            &scene_resources.index_buffer,
-            &scene_resources.vertex_buffer.inner(),
-        );
-    }
-
-    pub fn raytrace(&mut self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue, view_transform: &Mat4) {
+    pub fn raytrace(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        queue: &wgpu::Queue,
+        view_transform: &Mat4,
+    ) {
         const STATIC_NUM_BOUNCES: u32 = 3;
         const MOVING_NUM_BOUNCES: u32 = 2;
 
@@ -398,7 +412,11 @@ impl Renderer {
             None => return,
         };
 
-        let nb_bounces = if !self.accumulate { MOVING_NUM_BOUNCES } else { STATIC_NUM_BOUNCES };
+        let nb_bounces = if !self.accumulate {
+            MOVING_NUM_BOUNCES
+        } else {
+            STATIC_NUM_BOUNCES
+        };
 
         // Step 1:
         //     * Update the frame uniforms.
@@ -413,7 +431,9 @@ impl Renderer {
         let dispatch_size: (u32, u32, u32) = (self.size.0, self.size.1, 1);
 
         let camera = {
-            let mut camera = Camera{..Default::default()};
+            let mut camera = Camera {
+                ..Default::default()
+            };
             camera.dimensions = [self.size.0, self.size.1];
             camera.set_transform(&view_transform);
             camera
@@ -438,7 +458,8 @@ impl Renderer {
         // Primary intersection
         self.global_uniforms.seed += 1;
         self.global_uniforms.bounces = 0;
-        self.global_uniforms_buffer.update(&queue, &[self.global_uniforms]);
+        self.global_uniforms_buffer
+            .update(&queue, &[self.global_uniforms]);
         self.queries.start("primary intersection", encoder);
         self.passes.intersection.dispatch(
             encoder,
@@ -460,7 +481,7 @@ impl Renderer {
                 surface_bindgroup,
                 &bindgroups.primary_rays[asvgf.curr_frame()],
                 dispatch_size,
-                &self.prev_model_to_screen
+                &self.prev_model_to_screen,
             );
             self.queries.end(encoder);
         }
@@ -500,11 +521,11 @@ impl Renderer {
                 self.queries.start("asvgf", encoder);
                 asvgf.render(encoder, &dispatch_size, &self.render_targets.main_texture);
                 self.queries.end(encoder);
-            },
+            }
             BlitMode::Temporal => {
                 let asvgf = self.asvgf.as_mut().unwrap();
                 asvgf.temporal_pass(encoder, &dispatch_size);
-            },
+            }
             BlitMode::Pahtrace => {
                 // Accumulation
                 let accumulate_bindgroup = if self.global_uniforms.frame_count % 2 != 0 {
@@ -520,7 +541,7 @@ impl Renderer {
                 if self.accumulate {
                     self.global_uniforms.frame_count += 1;
                 }
-            },
+            }
             _ => {}
         }
 
@@ -533,31 +554,51 @@ impl Renderer {
         self.queries.resolve(encoder);
     }
 
-    pub fn blit(&mut self, device: &Device, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    pub fn blit(
+        &mut self,
+        device: &Device,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+    ) {
         if self.debug_blit_bindgroup.is_empty() {
             match self.mode {
                 BlitMode::DenoisedPathrace => {
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &self.render_targets.main, &self.render_targets.main);
-                },
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(
+                        device,
+                        &self.render_targets.main,
+                        &self.render_targets.main,
+                    );
+                }
                 BlitMode::Temporal => {
                     let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].radiance, &textures[1].radiance);
-                },
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(
+                        device,
+                        &textures[0].radiance,
+                        &textures[1].radiance,
+                    );
+                }
                 BlitMode::GBuffer => {
                     let textures = &self.asvgf.as_ref().unwrap().resources.pingpong;
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &textures[0].gbuffer, &textures[1].gbuffer);
-                },
+                    self.debug_blit_bindgroup = self.create_debug_bindgroup(
+                        device,
+                        &textures[0].gbuffer,
+                        &textures[1].gbuffer,
+                    );
+                }
                 BlitMode::MotionVector => {
                     let res = &self.asvgf.as_ref().unwrap().resources;
-                    self.debug_blit_bindgroup = self.create_debug_bindgroup(device, &res.motion, &res.motion);
-                },
+                    self.debug_blit_bindgroup =
+                        self.create_debug_bindgroup(device, &res.motion, &res.motion);
+                }
                 _ => {}
             }
         }
 
         if self.mode != BlitMode::Pahtrace {
             let index: usize = self.frame_back as usize;
-            self.passes.blit_texture.draw(encoder, &view, &self.debug_blit_bindgroup[index]);
+            self.passes
+                .blit_texture
+                .draw(encoder, &view, &self.debug_blit_bindgroup[index]);
             return;
         }
 
@@ -624,7 +665,8 @@ impl Renderer {
             size,
         );
 
-        self.texture_blue_noise = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.texture_blue_noise =
+            Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
     }
 
     pub fn use_noise_texture(&mut self, queue: &wgpu::Queue, flag: bool) {
@@ -637,7 +679,9 @@ impl Renderer {
     }
 
     pub fn set_blit_mode(&mut self, mode: BlitMode) {
-        if self.mode == mode { return; }
+        if self.mode == mode {
+            return;
+        }
         self.mode = mode;
         self.debug_blit_bindgroup.clear(); // Re-create
     }
@@ -671,12 +715,12 @@ impl Renderer {
             _ => device.default_textures().filterable_2d(),
         };
 
-        self.frame_bindgroups = Some(self.create_bind_groups(device, scene_resources));
+        self.frame_bindgroups = Some(self.create_bind_groups(device));
         self.geometry_bindgroup = Some(self.geometry_bindgroup_layout.create_bindgroup(
             device,
             scene_resources.bvh_buffer.as_storage_slice().unwrap(),
             scene_resources.instance_buffer.as_storage_slice().unwrap(),
-            scene_resources.index_buffer.as_storage_slice().unwrap(),
+            scene_resources.bvh_tri_buffer.as_storage_slice().unwrap(),
             scene_resources.vertex_buffer.as_storage_slice().unwrap(),
             scene_resources.light_buffer.as_storage_slice().unwrap(),
         ));
@@ -731,7 +775,8 @@ impl Renderer {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // @todo: this re-create shaders + pipeline layout + life.
-        let blit_pass = passes::BlitPass::new(device, &self.shaders, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let blit_pass =
+            passes::BlitPass::new(device, &self.shaders, wgpu::TextureFormat::Rgba8UnormSrgb);
         blit_pass.draw(
             &mut encoder,
             &view,
@@ -779,11 +824,7 @@ impl Renderer {
         }
     }
 
-    fn create_bind_groups(
-        &self,
-        device: &Device,
-        scene_resources: &SceneGPU,
-    ) -> BindGroups {
+    fn create_bind_groups(&self, device: &Device) -> BindGroups {
         let resources = RaytraceResources {
             rays: self.ray_buffer.as_storage_slice().unwrap(),
             intersections: self.intersection_buffer.as_storage_slice().unwrap(),
@@ -794,12 +835,11 @@ impl Renderer {
         let denoise_res = DenoiseResources {
             gbuffer_current: &asvgf.resources.pingpong[0].gbuffer,
             gbuffer_previous: &asvgf.resources.pingpong[1].gbuffer,
-            motion: &asvgf.resources.motion
+            motion: &asvgf.resources.motion,
         };
         BindGroups::new(
             device,
             &self.render_targets,
-            &scene_resources,
             &resources,
             &denoise_res,
             &self.passes.rays,
@@ -808,14 +848,26 @@ impl Renderer {
             &self.passes.primary_rays,
             &self.passes.accumulation,
             &self.passes.blit,
-            &self.passes.lightmap
         )
     }
 
-    fn create_debug_bindgroup(&self, device: &Device, curr: &wgpu::TextureView, prev: &wgpu::TextureView) -> Vec<wgpu::BindGroup> {
+    fn create_debug_bindgroup(
+        &self,
+        device: &Device,
+        curr: &wgpu::TextureView,
+        prev: &wgpu::TextureView,
+    ) -> Vec<wgpu::BindGroup> {
         vec![
-            self.passes.blit_texture.create_frame_bind_groups(device.inner(), curr, device.sampler_nearest()),
-            self.passes.blit_texture.create_frame_bind_groups(device.inner(), prev, device.sampler_nearest()),
+            self.passes.blit_texture.create_frame_bind_groups(
+                device.inner(),
+                curr,
+                device.sampler_nearest(),
+            ),
+            self.passes.blit_texture.create_frame_bind_groups(
+                device.inner(),
+                prev,
+                device.sampler_nearest(),
+            ),
         ]
     }
 }

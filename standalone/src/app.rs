@@ -1,11 +1,27 @@
-use std::{path::{self, PathBuf}, sync::Arc, time::Instant};
+use std::{
+    path::{self, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
-use albedo_lib::{load_gltf, BlitMode, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU};
+use albedo_lib::{
+    load_gltf, BlitMode, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU,
+};
 use image::GenericImageView;
-use winit::{application::ApplicationHandler, keyboard::{Key, NamedKey}};
+use winit::{
+    application::ApplicationHandler,
+    keyboard::{Key, NamedKey},
+};
 
 use crate::{
-    camera::{CameraController, CameraMoveCommand}, commands, errors::Error, event::LoadEvent, gui::{GUIContext, GUI}, input_manager::InputManager, logger::log, Event, Settings, Spawner
+    camera::{CameraController, CameraMoveCommand},
+    commands,
+    errors::Error,
+    event::LoadEvent,
+    gui::{GUIContext, GUI},
+    input_manager::InputManager,
+    logger::log,
+    Event, Settings, Spawner,
 };
 
 pub struct Plaftorm {
@@ -171,7 +187,7 @@ impl ApplicationContext {
         self.gui
             .windows
             .scene_info_window
-            .set_meshes_count(self.scene.meshes.len());
+            .set_meshes_count(self.scene.blas.entries.len());
         self.gui
             .windows
             .scene_info_window
@@ -215,9 +231,12 @@ impl ApplicationContext {
     }
 
     pub fn reload_shaders(&mut self) {
-        let Some(s) = self.shader_paths.to_str() else { return; };
+        let Some(s) = self.shader_paths.to_str() else {
+            return;
+        };
         log!("Reloading shaders {}", s);
-        self.renderer.reload_shaders(&self.platform.device, &self.shader_paths);
+        self.renderer
+            .reload_shaders(&self.platform.device, &self.shader_paths);
     }
 }
 
@@ -232,9 +251,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
         _: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        self
-            .gui
-            .handle_event(&self.platform.window, &event);
+        self.gui.handle_event(&self.platform.window, &event);
         self.event_captured = self.gui.captured();
 
         match event {
@@ -268,10 +285,11 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
 
                 let view_transform = self.camera_controller.update(delta);
 
-                let mut encoder =
-                    self.platform.device.inner().create_command_encoder(
-                        &wgpu::CommandEncoderDescriptor { label: None },
-                    );
+                let mut encoder = self
+                    .platform
+                    .device
+                    .inner()
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 let renderer = &mut self.renderer;
                 renderer.queries.start_frame(timestamp_period);
@@ -303,16 +321,16 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                     &view,
                 );
 
-                self.platform.queue.submit(
-                    std::iter::once(encoder.finish()),
-                );
+                self.platform
+                    .queue
+                    .submit(std::iter::once(encoder.finish()));
 
                 frame.present();
 
                 renderer.queries.end_frame(timestamp_period);
 
                 self.platform.window.request_redraw();
-            },
+            }
             winit::event::WindowEvent::Resized(size) => {
                 // winit bug
                 if size.width == u32::MAX || size.height == u32::MAX {
@@ -321,12 +339,14 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
 
                 self.platform.surface_config.width = size.width.max(1);
                 self.platform.surface_config.height = size.height.max(1);
-                self
-                    .platform
+                self.platform
                     .surface
                     .configure(self.platform.device.inner(), &self.platform.surface_config);
-                self.resize(self.platform.surface_config.width, self.platform.surface_config.height);
-            },
+                self.resize(
+                    self.platform.surface_config.width,
+                    self.platform.surface_config.height,
+                );
+            }
             winit::event::WindowEvent::KeyboardInput {
                 event:
                     winit::event::KeyEvent {
@@ -367,22 +387,28 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
                         }
                     };
                 }
-                if let Some(cmd) =
-                    self.input_manager.process_keyboard_input(&logical_key, &state)
+                if let Some(cmd) = self
+                    .input_manager
+                    .process_keyboard_input(&logical_key, &state)
                 {
                     self.run_command(cmd);
                 }
-            },
+            }
             winit::event::WindowEvent::MouseInput { button, state, .. } => {
                 if button == winit::event::MouseButton::Left {
-                    self.camera_controller.rotation_enabled = state == winit::event::ElementState::Pressed;
+                    self.camera_controller.rotation_enabled =
+                        state == winit::event::ElementState::Pressed;
                 }
             }
             _ => {}
         }
     }
 
-    fn new_events(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, cause: winit::event::StartCause) {
+    fn new_events(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        cause: winit::event::StartCause,
+    ) {
         let _ = (event_loop, cause);
     }
 
