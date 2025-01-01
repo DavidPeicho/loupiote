@@ -106,14 +106,15 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let scene_path = "./assets/DamagedHelmet.glb";
+        // let scene_path = "./assets/cornell-box.glb";
         app_context.load_env_path("./assets/uffizi-large.hdr");
-        app_context
-            .load_file_path("./assets/DamagedHelmet.glb")
-            .unwrap();
+        app_context.load_file_path(scene_path).unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    let mut filewatch = hotwatch::Hotwatch::new_with_custom_delay(std::time::Duration::from_secs(1)).ok();
+    let mut filewatch =
+        hotwatch::Hotwatch::new_with_custom_delay(std::time::Duration::from_secs(1)).ok();
     #[cfg(not(target_arch = "wasm32"))]
     {
         // @todo: CLI argument.
@@ -124,9 +125,11 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
         };
         let proxy = app_context.event_loop_proxy.clone();
         if let Some(watcher) = filewatch.as_mut() {
-            watcher.watch(&app_context.shader_paths, move |_| {
-                proxy.send_event(Event::ReloadShaders).ok();
-            }).ok();
+            watcher
+                .watch(&app_context.shader_paths, move |_| {
+                    proxy.send_event(Event::ReloadShaders).ok();
+                })
+                .ok();
         };
     }
 
@@ -136,7 +139,9 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 }
 
 pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
-    let event_loop: EventLoop<Event> = winit::event_loop::EventLoop::with_user_event().build().unwrap();
+    let event_loop: EventLoop<Event> = winit::event_loop::EventLoop::with_user_event()
+        .build()
+        .unwrap();
     let window_attributes = winit::window::Window::default_attributes().with_title("Loupiote");
     let window = event_loop.create_window(window_attributes).unwrap();
 
@@ -211,7 +216,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
                 label: None,
                 required_features: features | required_features,
                 required_limits: needed_limits,
-                memory_hints: wgpu::MemoryHints::Performance
+                memory_hints: wgpu::MemoryHints::Performance,
             },
             trace_dir.ok().as_ref().map(std::path::Path::new),
         )
@@ -240,7 +245,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
             window,
             surface,
             queue,
-            surface_config
+            surface_config,
         },
     )
 }

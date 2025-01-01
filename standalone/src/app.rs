@@ -59,7 +59,8 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub fn init(&mut self) {
-        self.settings.blit_mode = BlitMode::DenoisedPathrace;
+        // self.settings.blit_mode = BlitMode::DenoisedPathrace;
+        self.settings.blit_mode = BlitMode::Pahtrace;
         self.camera_controller = CameraController::from_origin_dir(
             glam::Vec3::new(2.0, 0.0, 2.0),
             glam::Vec3::new(-1.0, 0.0, -1.0).normalize(),
@@ -175,7 +176,17 @@ impl ApplicationContext {
                 atlas_max_size: limits.max_texture_dimension_1d,
             },
         )?;
-        log!("GLB loaded!");
+
+        log!(
+            "Scene: {{\n\tMeshes={:?}\n\tCWBVH Nodes = {:?}\n\tCWBVH Primitives = {:?}\n\tInstances = {:?}\n}}",
+            scene.blas.entries.len(),
+            scene.blas.nodes.len(),
+            scene.blas.primitives.len(),
+            scene.blas.instances.len(),
+        );
+
+        println!("{:?}", scene.blas.nodes[0]);
+
         self.scene = scene;
         self.scene_gpu = SceneGPU::new_from_scene(
             &self.scene,
