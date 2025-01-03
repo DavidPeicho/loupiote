@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use albedo_rtx::texture;
 use albedo_rtx::uniforms;
 
@@ -72,6 +74,15 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
                 continue;
             };
 
+            match primitive.mode() {
+                gltf::mesh::Mode::Triangles
+                | gltf::mesh::Mode::TriangleFan
+                | gltf::mesh::Mode::TriangleStrip => (),
+                _ => continue,
+            };
+
+            println!("Triangles = {:?}", primitive.mode());
+
             // TODO: glTF can be sparsed, which means a copy is required in this particular case.
             // Ideally, the glTF crate would give a fast way to nth the iterator.
             let positions: Vec<[f32; 4]> = in_positions.map(|v| [v[0], v[1], v[2], 0.0]).collect();
@@ -129,7 +140,7 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
         // User should have their own scene graph. However, a simple code path
         // should directly be provided for users.
         if let Some(mesh) = node.mesh() {
-            let index = mesh.index();
+            let index = mesh.index() as u32;
             let model_to_world = glam::Mat4::from_cols_array_2d(&node.transform().matrix());
             for primitive in mesh.primitives() {
                 let material_index = match primitive.material().index() {
@@ -159,4 +170,9 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
         atlas,
         lights: vec![Default::default()],
     })
+}
+
+pub fn load_gltf_path<P: AsRef<Path>>(path: P, opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
+    let bytes = std::fs::read(path).unwrap();
+    load_gltf(&bytes[..], opts)
 }

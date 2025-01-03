@@ -5,7 +5,8 @@ use std::{
 };
 
 use albedo_lib::{
-    load_gltf, BlitMode, Device, GLTFLoaderOptions, ProbeGPU, Renderer, Scene, SceneGPU,
+    loaders::{self, GLTFLoaderOptions},
+    BlitMode, Device, ProbeGPU, Renderer, Scene, SceneGPU,
 };
 use image::GenericImageView;
 use winit::{
@@ -170,50 +171,13 @@ impl ApplicationContext {
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
         log!("Loading GLB...");
         let limits = &self.platform.device.inner().limits();
-        let scene = load_gltf(
+        let scene = loaders::load_gltf(
             data,
             &GLTFLoaderOptions {
                 atlas_max_size: limits.max_texture_dimension_1d,
             },
         )?;
-
-        log!(
-            "Scene: {{\n\tMeshes={:?}\n\tCWBVH Nodes = {:?}\n\tCWBVH Primitives = {:?}\n\tInstances = {:?}\n}}",
-            scene.blas.entries.len(),
-            scene.blas.nodes.len(),
-            scene.blas.primitives.len(),
-            scene.blas.instances.len(),
-        );
-
-        println!("{:?}", scene.blas.nodes[0]);
-
-        self.scene = scene;
-        self.scene_gpu = SceneGPU::new_from_scene(
-            &self.scene,
-            self.platform.device.inner(),
-            &self.platform.queue,
-        );
-
-        // Update GUI information.
-        self.gui
-            .windows
-            .scene_info_window
-            .set_meshes_count(self.scene.blas.entries.len());
-        self.gui
-            .windows
-            .scene_info_window
-            .set_bvh_nodes_count(self.scene.blas.nodes.len());
-
-        if let Some(atlas) = &self.scene.atlas {
-            log!("Texture Atlas: {{");
-            log!("\tTextures count = {}", atlas.textures().len());
-            log!("\tLayers count = {}", atlas.layer_count());
-            log!("}}");
-        }
-
-        self.renderer
-            .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
-        Ok(())
+        self.upload_scene(scene)
     }
 
     pub fn save_screenshot<P: AsRef<path::Path>>(&self, path: P) {
@@ -248,6 +212,47 @@ impl ApplicationContext {
         log!("Reloading shaders {}", s);
         self.renderer
             .reload_shaders(&self.platform.device, &self.shader_paths);
+    }
+
+    pub fn upload_scene(&mut self, scene: Scene) -> Result<(), Error> {
+        log!(
+            "Scene: {{\n\tMeshes={:?}\n\tVertices = {:?}\n\tCWBVH Nodes = {:?}\n\tCWBVH Primitives = {:?}\n\tInstances = {:?}\n}}",
+            scene.blas.entries.len(),
+            scene.blas.vertices.len(),
+            scene.blas.nodes.len(),
+            scene.blas.primitives.len(),
+            scene.blas.instances.len(),
+        );
+
+        println!("{:?}", scene.blas.nodes[0]);
+
+        self.scene = scene;
+        self.scene_gpu = SceneGPU::new_from_scene(
+            &self.scene,
+            self.platform.device.inner(),
+            &self.platform.queue,
+        );
+
+        // Update GUI information.
+        self.gui
+            .windows
+            .scene_info_window
+            .set_meshes_count(self.scene.blas.entries.len());
+        self.gui
+            .windows
+            .scene_info_window
+            .set_bvh_nodes_count(self.scene.blas.nodes.len());
+
+        if let Some(atlas) = &self.scene.atlas {
+            log!("Texture Atlas: {{");
+            log!("\tTextures count = {}", atlas.textures().len());
+            log!("\tLayers count = {}", atlas.layer_count());
+            log!("}}");
+        }
+
+        self.renderer
+            .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());
+        Ok(())
     }
 }
 

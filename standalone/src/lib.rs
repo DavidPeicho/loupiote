@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use camera::CameraController;
+use loaders::GLTFLoaderOptions;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -106,10 +107,29 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let scene_path = "./assets/DamagedHelmet.glb";
-        // let scene_path = "./assets/cornell-box.glb";
+        let gltf_path = "./assets/DamagedHelmet.glb";
         app_context.load_env_path("./assets/uffizi-large.hdr");
-        app_context.load_file_path(scene_path).unwrap();
+
+        // app_context.load_file_path(scene_path).unwrap();
+
+        let limits = &app_context.platform.device.inner().limits();
+
+        let mut scene = loaders::load_gltf_path(
+            gltf_path,
+            &GLTFLoaderOptions {
+                atlas_max_size: limits.max_texture_dimension_1d,
+            },
+        )
+        .unwrap();
+        loaders::load_binary_from_path("./assets/binary/cryteksponza.bin", &mut scene);
+
+        // Move helmet up.
+        let model_to_world = scene.blas.instances[0].model_to_world;
+        scene.blas.instances[0].set_transform(
+            glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)) * model_to_world,
+        );
+
+        app_context.upload_scene(scene).unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
