@@ -14,8 +14,7 @@ glam = { workspace = true }
 wgpu = { workspace = true }
 pas = { workspace = true }
 albedo_backend = { git = "https://github.com/albedo-engine/albedo.git" }
-albedo_bvh = { git = "https://github.com/albedo-engine/albedo.git" }
 albedo_rtx = { git = "https://github.com/albedo-engine/albedo.git" }
 bytemuck = "1.7.2"
 futures-intrusive = "0.4"
-gltf = "1.0.0"
+gltf = "1.4.1"

@@ -10,7 +10,7 @@ default-members = ["standalone"]
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
 glam = "0.20.2"
 wgpu = "23.0.0"
-pas = "0.1.0"
+pas = "0.3.0"
 
 # @todo: Remove when merged: https://github.com/gfx-rs/wgpu/pull/6513
 [patch.crates-io]
