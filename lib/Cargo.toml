@@ -13,8 +13,8 @@ image = { workspace = true }
 glam = { workspace = true }
 wgpu = { workspace = true }
 pas = { workspace = true }
-albedo_backend = { path = "../../albedo/crates/albedo_backend" }
-albedo_rtx = { path = "../../albedo/crates/albedo_rtx" }
+albedo_backend = { git = "https://github.com/albedo-engine/albedo.git" }
+albedo_rtx = { git = "https://github.com/albedo-engine/albedo.git" }
 bytemuck = "1.7.2"
 futures-intrusive = "0.4"
 gltf = "1.4.1"
