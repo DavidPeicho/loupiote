@@ -121,9 +121,9 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
             },
         )
         .unwrap();
-        loaders::load_binary_from_path("./assets/binary/cryteksponza.bin", &mut scene);
 
         // Move helmet up.
+        loaders::load_binary_from_path("./assets/binary/cryteksponza.bin", &mut scene);
         let model_to_world = scene.blas.instances[0].model_to_world;
         scene.blas.instances[0].set_transform(
             glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)) * model_to_world,

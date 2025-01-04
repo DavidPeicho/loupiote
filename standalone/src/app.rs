@@ -66,6 +66,10 @@ impl ApplicationContext {
             glam::Vec3::new(2.0, 0.0, 2.0),
             glam::Vec3::new(-1.0, 0.0, -1.0).normalize(),
         );
+        self.camera_controller = CameraController::from_origin_dir(
+            glam::Vec3::new(-10.0, 1.0, 0.0),
+            glam::Vec3::new(1.0, 0.35, 0.0).normalize(),
+        );
     }
 
     pub fn run_command(&mut self, command: commands::EditorCommand) {
@@ -223,8 +227,6 @@ impl ApplicationContext {
             scene.blas.primitives.len(),
             scene.blas.instances.len(),
         );
-
-        println!("{:?}", scene.blas.nodes[0]);
 
         self.scene = scene;
         self.scene_gpu = SceneGPU::new_from_scene(
