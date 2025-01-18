@@ -1,5 +1,8 @@
 use albedo_backend::{data::ShaderCache, gpu};
-use albedo_rtx::{passes::{ATrousPass, CompositingPass, TemporalAccumulationPass}, Ray};
+use albedo_rtx::{
+    passes::{ATrousPass, CompositingPass, TemporalAccumulationPass},
+    Ray,
+};
 
 use crate::Device;
 
@@ -46,8 +49,7 @@ impl PingPongResources {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba32Uint,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::STORAGE_BINDING,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
                 view_formats: &[],
             })
         };
@@ -63,18 +65,21 @@ impl PingPongResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
 
         let pixel_count = size.0 * size.1;
         let history = {
             let label = format!("History Buffer {}", index);
-            gpu::Buffer::new_storage(device, pixel_count as u64, Some(gpu::BufferInitDescriptor {
-                label: Some(&label),
-                usage: wgpu::BufferUsages::STORAGE
-            }))
+            gpu::Buffer::new_storage(
+                device,
+                pixel_count as u64,
+                Some(gpu::BufferInitDescriptor {
+                    label: Some(&label),
+                    usage: wgpu::BufferUsages::STORAGE,
+                }),
+            )
         };
 
         Self {
@@ -82,7 +87,7 @@ impl PingPongResources {
             radiance_img,
             gbuffer: gbuffer.create_view(&wgpu::TextureViewDescriptor::default()),
             moments: moments.create_view(&wgpu::TextureViewDescriptor::default()),
-            history
+            history,
         }
     }
 }
@@ -107,8 +112,7 @@ impl ScreenResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rg32Float, // @todo: Use F16
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
 
@@ -164,24 +168,60 @@ pub(crate) struct ASVGF {
 }
 
 impl ASVGF {
-    pub fn new(device: &Device, spp: &ShaderCache, size: &(u32, u32), out: &wgpu::TextureView, rays: &gpu::Buffer<Ray>) -> Self {
+    pub fn new(
+        device: &Device,
+        spp: &ShaderCache,
+        size: &(u32, u32),
+        out: &wgpu::TextureView,
+        rays: &gpu::Buffer<Ray>,
+    ) -> Self {
         let resources = ScreenResources::new(device, size);
 
         let passes = ASVGFPasses {
-            temporal: TemporalAccumulationPass::new(device, spp, None),
+            // temporal: TemporalAccumulationPass::new(device, spp, None),
+            temporal: TemporalAccumulationPass::new_inlined(device, spp),
             atrous: ATrousPass::new(device, spp, None),
-            composit: CompositingPass::new_inlined(device, spp)
+            composit: CompositingPass::new_inlined(device, spp),
         };
 
-        let temporal_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
-            let previous = &resources.pingpong[1 - i];
-            passes.temporal.create_frame_bind_groups(device, &res.radiance, &res.moments, &res.history, &rays, &previous.gbuffer, &res.gbuffer, &resources.motion, &previous.radiance, device.sampler_nearest(), &previous.history, &previous.moments)
-        }).collect();
+        let temporal_bindgroup = resources
+            .pingpong
+            .iter()
+            .enumerate()
+            .map(|(i, res)| {
+                let previous = &resources.pingpong[1 - i];
+                passes.temporal.create_frame_bind_groups(
+                    device,
+                    &res.radiance,
+                    &res.moments,
+                    &res.history,
+                    &rays,
+                    &previous.gbuffer,
+                    &res.gbuffer,
+                    &resources.motion,
+                    &previous.radiance,
+                    device.sampler_nearest(),
+                    &previous.history,
+                    &previous.moments,
+                )
+            })
+            .collect();
 
-        let atrous_bindgroup = resources.pingpong.iter().enumerate().map(|(i, res)| {
-            // @todo: Use temporary radiance to not overwrite temporally accumulated one
-            passes.atrous.create_frame_bind_groups(device, out, &res.gbuffer, &resources.radiance_temp, device.sampler_nearest())
-        }).collect();
+        let atrous_bindgroup = resources
+            .pingpong
+            .iter()
+            .enumerate()
+            .map(|(i, res)| {
+                // @todo: Use temporary radiance to not overwrite temporally accumulated one
+                passes.atrous.create_frame_bind_groups(
+                    device,
+                    out,
+                    &res.gbuffer,
+                    &resources.radiance_temp,
+                    device.sampler_nearest(),
+                )
+            })
+            .collect();
 
         Self {
             resources,
@@ -190,7 +230,7 @@ impl ASVGF {
             atrous_bindgroup,
 
             passes,
-            current_frame_back: true
+            current_frame_back: true,
         }
     }
 
@@ -198,39 +238,70 @@ impl ASVGF {
         self.current_frame_back = !self.current_frame_back;
     }
 
-    pub fn temporal_pass(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32)) {
-        self.passes.temporal.dispatch(encoder, self.curr_temporal_bindgroup(), dispatch_size);
+    pub fn temporal_pass(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        dispatch_size: &(u32, u32, u32),
+    ) {
+        self.passes
+            .temporal
+            .dispatch(encoder, self.curr_temporal_bindgroup(), dispatch_size);
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, dispatch_size: &(u32, u32, u32), out_texture: &wgpu::Texture) {
+    pub fn render(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        dispatch_size: &(u32, u32, u32),
+        out_texture: &wgpu::Texture,
+    ) {
         self.temporal_pass(encoder, dispatch_size);
 
         // Copy current frame radiance into temporary input for atrous
-        let curr_radiance: &wgpu::Texture = &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
-        encoder.copy_texture_to_texture(wgpu::ImageCopyTexture {
-            texture: &curr_radiance,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },wgpu::ImageCopyTexture {
-            texture: &self.resources.radiance_img_temp,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        }, self.resources.radiance_img_temp.size());
+        let curr_radiance: &wgpu::Texture =
+            &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: &curr_radiance,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: &self.resources.radiance_img_temp,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            self.resources.radiance_img_temp.size(),
+        );
 
         let atrou_bindgroups = self.curr_atrou_bindgroup();
-        self.passes.atrous.dispatch(encoder, atrou_bindgroups, &out_texture, &curr_radiance, dispatch_size);
+        self.passes.atrous.dispatch(
+            encoder,
+            atrou_bindgroups,
+            &out_texture,
+            &curr_radiance,
+            dispatch_size,
+        );
 
         // A-Trous uses an even number of calls, so result is in `radiance_img_temp`
         // Thus, re-using the first a-trou bind group is fine
-        self.passes.composit.dispatch(encoder, &atrou_bindgroups[0], dispatch_size);
+        self.passes
+            .composit
+            .dispatch(encoder, &atrou_bindgroups[0], dispatch_size);
     }
 
     pub fn reload_shaders(&mut self, device: &wgpu::Device, spp: &ShaderCache) {
+        // match TemporalAccumulationPass::new(device, spp) {
+        //     Ok(pass) => self.passes.temporal = pass,
+        //     Err(e) => println!("Failed to reload temporal pass, reason:\n{:?}", e),
+        // };
         match CompositingPass::new(device, spp) {
             Ok(pass) => self.passes.composit = pass,
-            Err(e) => println!("Failed to reload compositing pass (compositing.comp), reason:\n{:?}", e)
+            Err(e) => println!(
+                "Failed to reload compositing pass (compositing.comp), reason:\n{:?}",
+                e
+            ),
         };
     }
 

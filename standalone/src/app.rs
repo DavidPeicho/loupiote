@@ -60,8 +60,8 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub fn init(&mut self) {
-        // self.settings.blit_mode = BlitMode::DenoisedPathrace;
-        self.settings.blit_mode = BlitMode::Pahtrace;
+        // self.settings.blit_mode = BlitMode::Pahtrace;
+        self.settings.blit_mode = BlitMode::Temporal;
         self.camera_controller = CameraController::from_origin_dir(
             glam::Vec3::new(2.0, 0.0, 2.0),
             glam::Vec3::new(-1.0, 0.0, -1.0).normalize(),
@@ -175,11 +175,13 @@ impl ApplicationContext {
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
         log!("Loading GLB...");
         let limits = &self.platform.device.inner().limits();
-        let scene = loaders::load_gltf(
+        let mut scene = Scene::default();
+        loaders::load_gltf(
             data,
             &GLTFLoaderOptions {
                 atlas_max_size: limits.max_texture_dimension_1d,
             },
+            &mut scene,
         )?;
         self.upload_scene(scene)
     }
@@ -214,8 +216,17 @@ impl ApplicationContext {
             return;
         };
         log!("Reloading shaders {}", s);
+
         self.renderer
-            .reload_shaders(&self.platform.device, &self.shader_paths);
+            .shaders
+            .add_directory(&self.shader_paths, None)
+            .unwrap();
+        let imports_path = self.shader_paths.join("imports");
+        self.renderer
+            .shaders
+            .add_directory(&imports_path, Some("imports"))
+            .unwrap();
+        self.renderer.reload_shaders(&self.platform.device);
     }
 
     pub fn upload_scene(&mut self, scene: Scene) -> Result<(), Error> {

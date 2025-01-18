@@ -98,6 +98,7 @@ impl BindGroups {
                 device,
                 resources.rays,
                 resources.camera_uniforms,
+                resources.global_uniforms,
             ),
             intersection_pass: intersector_pass_desc.create_frame_bind_groups(
                 device,
@@ -356,14 +357,7 @@ impl Renderer {
         self.debug_blit_bindgroup.clear(); // Re-create the bindgroup
     }
 
-    pub fn reload_shaders<P: AsRef<std::path::Path> + Debug>(
-        &mut self,
-        device: &Device,
-        directory: P,
-    ) {
-        println!("Reload shaders {:?}", directory);
-        self.shaders.add_directory(directory).unwrap();
-
+    pub fn reload_shaders(&mut self, device: &Device) {
         // TODO: This assumes that the bind group layout doesn't change.
 
         let empty_defines = FastHashMap::default();
@@ -402,7 +396,7 @@ impl Renderer {
         view_transform: &Mat4,
     ) {
         const STATIC_NUM_BOUNCES: u32 = 3;
-        const MOVING_NUM_BOUNCES: u32 = 2;
+        const MOVING_NUM_BOUNCES: u32 = 3;
 
         self.frame_back = !self.frame_back;
 
@@ -495,16 +489,16 @@ impl Renderer {
             self.global_uniforms_buffer
                 .update(&queue, &[self.global_uniforms]);
 
-            self.queries.start(format!("intersection {}", i), encoder);
+            // self.queries.start(format!("intersection {}", i), encoder);
             self.passes.intersection.dispatch(
                 encoder,
                 &geometry_bindgroup,
                 &bindgroups.intersection_pass,
                 dispatch_size,
             );
-            self.queries.end(encoder);
+            // self.queries.end(encoder);
 
-            self.queries.start(format!("shading {}", i), encoder);
+            // self.queries.start(format!("shading {}", i), encoder);
             self.passes.shading.dispatch(
                 encoder,
                 geometry_bindgroup,
@@ -512,7 +506,7 @@ impl Renderer {
                 &bindgroups.shading_pass,
                 dispatch_size,
             );
-            self.queries.end(encoder);
+            // self.queries.end(encoder);
         }
 
         match self.mode {

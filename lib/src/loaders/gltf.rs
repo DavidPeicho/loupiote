@@ -49,8 +49,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
     ImageData::new(buffer, image.width, image.height)
 }
 
-pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
-    // @todo: This method is too slow, profile.
+pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions, scene: &mut Scene) -> Result<(), Error> {
     let (doc, buffers, images) = match gltf::import_slice(data) {
         Ok(tuple) => tuple,
         Err(err) => {
@@ -64,9 +63,7 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
         }
     };
 
-    let mut materials: Vec<uniforms::Material> = Vec::new();
-    let mut blas = BLASArray::new();
-
+    let bvh_offset = scene.blas.entries.len() as u32;
     for mesh in doc.meshes() {
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
@@ -80,8 +77,6 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
                 | gltf::mesh::Mode::TriangleStrip => (),
                 _ => continue,
             };
-
-            println!("Triangles = {:?}", primitive.mode());
 
             // TODO: glTF can be sparsed, which means a copy is required in this particular case.
             // Ideally, the glTF crate would give a fast way to nth the iterator.
@@ -107,29 +102,35 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
 
             if let Some(indices) = reader.read_indices() {
                 let indices: Vec<u32> = indices.into_u32().collect();
-                blas.add_bvh_indexed(IndexedMeshDescriptor {
+                scene.blas.add_bvh_indexed(IndexedMeshDescriptor {
                     mesh,
                     indices: &indices,
                 });
             } else {
-                blas.add_bvh(mesh);
+                scene.blas.add_bvh(mesh);
             }
         }
     }
 
+    let mat_offset = scene.materials.len() as u32;
+    let texture_offset = if let Some(atlas) = scene.atlas.as_ref() {
+        atlas.textures().len() as u32
+    } else {
+        0
+    };
     for material in doc.materials() {
         let pbr = material.pbr_metallic_roughness();
-        materials.push(uniforms::Material {
+        scene.materials.push(uniforms::Material {
             color: pbr.base_color_factor().into(),
             roughness: pbr.roughness_factor(),
             reflectivity: pbr.metallic_factor(),
             albedo_texture: pbr
                 .base_color_texture()
-                .map(|c| c.texture().index() as u32)
+                .map(|c| texture_offset + c.texture().index() as u32)
                 .unwrap_or(uniforms::INVALID_INDEX),
             mra_texture: pbr
                 .metallic_roughness_texture()
-                .map(|c| c.texture().index() as u32)
+                .map(|c| texture_offset + c.texture().index() as u32)
                 .unwrap_or(uniforms::INVALID_INDEX),
             ..Default::default()
         });
@@ -147,32 +148,38 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions) -> Result<Scene, Error> 
                     Some(v) => v as u32,
                     None => u32::MAX,
                 };
-                blas.add_instance(index, model_to_world, material_index);
+                scene.blas.add_instance(
+                    bvh_offset + index,
+                    model_to_world,
+                    mat_offset + material_index,
+                );
             }
         }
     }
 
-    let atlas = if images.len() > 0 {
-        let mut atlas = texture::TextureAtlas::new(opts.atlas_max_size);
+    if images.len() > 0 {
+        if scene.atlas.is_none() {
+            scene.atlas = Some(texture::TextureAtlas::new(opts.atlas_max_size));
+        }
         for image in images.into_iter() {
             let i = rgba8_image(image);
             // @todo: package metal / roughness / ao in single texture.
-            atlas.add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
+            scene
+                .atlas
+                .as_mut()
+                .unwrap()
+                .add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
         }
-        Some(atlas)
-    } else {
-        None
-    };
+    }
 
-    Ok(Scene {
-        materials,
-        blas,
-        atlas,
-        lights: vec![Default::default()],
-    })
+    Ok(())
 }
 
-pub fn load_gltf_path<P: AsRef<Path>>(path: P, opts: &GLTFLoaderOptions) -> Result<Scene, Error> {
-    let bytes = std::fs::read(path).unwrap();
-    load_gltf(&bytes[..], opts)
+pub fn load_gltf_path<P: AsRef<Path>>(
+    path: P,
+    opts: &GLTFLoaderOptions,
+    scene: &mut Scene,
+) -> Result<(), Error> {
+    let bytes: Vec<u8> = std::fs::read(path).unwrap();
+    load_gltf(&bytes[..], opts, scene)
 }
