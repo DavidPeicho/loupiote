@@ -39,7 +39,7 @@ impl GUI {
             &window,
             Some(window.scale_factor() as f32),
             None,
-            None
+            None,
         );
         GUI {
             platform,
@@ -79,9 +79,7 @@ impl GUI {
         }
         let consumed = self.platform.on_window_event(window, &event).consumed;
         self.captured = match event {
-            WindowEvent::CursorMoved { .. } => {
-                self.platform.egui_ctx().wants_pointer_input()
-            }
+            WindowEvent::CursorMoved { .. } => self.platform.egui_ctx().wants_pointer_input(),
             _ => consumed,
         };
         self.captured
@@ -94,7 +92,7 @@ impl GUI {
         view: &wgpu::TextureView,
     ) -> Vec<wgpu::CommandBuffer> {
         let inputs = self.platform.take_egui_input(&context.platform.window);
-        self.platform.egui_ctx().begin_frame(inputs);
+        self.platform.egui_ctx().begin_pass(inputs);
 
         let ctx = self.platform.egui_ctx();
 
@@ -105,7 +103,10 @@ impl GUI {
 
         let pixels_per_point = context.platform.window.scale_factor() as f32;
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [context.platform.surface_config.width, context.platform.surface_config.height],
+            size_in_pixels: [
+                context.platform.surface_config.width,
+                context.platform.surface_config.height,
+            ],
             pixels_per_point,
         };
 
@@ -113,7 +114,7 @@ impl GUI {
             shapes,
             textures_delta,
             ..
-        } = ctx.end_frame();
+        } = ctx.end_pass();
 
         let paint_jobs = ctx.tessellate(shapes, pixels_per_point);
 
@@ -158,8 +159,11 @@ impl GUI {
                 occlusion_query_set: None,
             });
             rpass.push_debug_group("egui_pass");
-            self.renderer
-                .render(&mut rpass.forget_lifetime(), &paint_jobs, &screen_descriptor);
+            self.renderer.render(
+                &mut rpass.forget_lifetime(),
+                &paint_jobs,
+                &screen_descriptor,
+            );
         }
         {
             for id in &textures_delta.free {

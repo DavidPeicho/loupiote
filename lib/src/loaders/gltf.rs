@@ -1,19 +1,13 @@
 use std::path::Path;
 
-use albedo_rtx::texture;
 use albedo_rtx::uniforms;
 
-use albedo_rtx::BLASArray;
 use albedo_rtx::IndexedMeshDescriptor;
 use albedo_rtx::MeshDescriptor;
 use gltf::{self, image};
 
 use crate::errors::Error;
 use crate::scene::{ImageData, Scene};
-
-pub struct GLTFLoaderOptions {
-    pub atlas_max_size: u32,
-}
 
 fn rgba8_image(image: image::Data) -> ImageData {
     let (components, _) = match image.format {
@@ -49,7 +43,7 @@ fn rgba8_image(image: image::Data) -> ImageData {
     ImageData::new(buffer, image.width, image.height)
 }
 
-pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions, scene: &mut Scene) -> Result<(), Error> {
+pub fn load_gltf(data: &[u8], scene: &mut Scene) -> Result<(), Error> {
     let (doc, buffers, images) = match gltf::import_slice(data) {
         Ok(tuple) => tuple,
         Err(err) => {
@@ -113,11 +107,7 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions, scene: &mut Scene) -> Re
     }
 
     let mat_offset = scene.materials.len() as u32;
-    let texture_offset = if let Some(atlas) = scene.atlas.as_ref() {
-        atlas.textures().len() as u32
-    } else {
-        0
-    };
+    let texture_offset = scene.images.len() as u32;
     for material in doc.materials() {
         let pbr = material.pbr_metallic_roughness();
         scene.materials.push(uniforms::Material {
@@ -157,29 +147,15 @@ pub fn load_gltf(data: &[u8], opts: &GLTFLoaderOptions, scene: &mut Scene) -> Re
         }
     }
 
-    if images.len() > 0 {
-        if scene.atlas.is_none() {
-            scene.atlas = Some(texture::TextureAtlas::new(opts.atlas_max_size));
-        }
-        for image in images.into_iter() {
-            let i = rgba8_image(image);
-            // @todo: package metal / roughness / ao in single texture.
-            scene
-                .atlas
-                .as_mut()
-                .unwrap()
-                .add(&texture::TextureSlice::new(i.data(), i.width()).unwrap());
-        }
+    for image in images.into_iter() {
+        // @todo: package metal / roughness / ao in single texture.
+        scene.images.push(rgba8_image(image));
     }
 
     Ok(())
 }
 
-pub fn load_gltf_path<P: AsRef<Path>>(
-    path: P,
-    opts: &GLTFLoaderOptions,
-    scene: &mut Scene,
-) -> Result<(), Error> {
+pub fn load_gltf_path<P: AsRef<Path>>(path: P, scene: &mut Scene) -> Result<(), Error> {
     let bytes: Vec<u8> = std::fs::read(path).unwrap();
-    load_gltf(&bytes[..], opts, scene)
+    load_gltf(&bytes[..], scene)
 }

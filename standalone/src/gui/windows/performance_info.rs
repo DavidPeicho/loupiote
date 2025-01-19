@@ -16,8 +16,8 @@ impl PerformanceInfoWindow {
     pub fn render(&mut self, context: &GUIContext, egui_ctx: &egui::Context) {
         let delta = &self.delta;
         let fps = &self.fps;
-        // let timestamp_values = context.renderer.queries.values();
-        // let timestamp_labels = context.renderer.queries.labels();
+        let timestamp_values = context.renderer.queries.values();
+        let timestamp_labels = context.renderer.queries.labels();
         egui::Window::new("Performance Info")
             .resizable(true)
             .open(&mut self.open)
@@ -25,7 +25,7 @@ impl PerformanceInfoWindow {
                 ui.vertical(|ui: &mut egui::Ui| {
                     views::render_label_and_text(ui, "Delta:", delta);
                     views::render_label_and_text(ui, "FPS:", fps);
-                    // Self::render_timestamps(ui, timestamp_values, timestamp_labels);
+                    Self::render_timestamps(ui, timestamp_values, timestamp_labels);
                 });
             });
     }

@@ -1,4 +1,4 @@
-use albedo_rtx::{blas, uniforms, BLASArray, Material, MeshDescriptor, Uniform, Vertex};
+use albedo_rtx::{uniforms, Material, MeshDescriptor, Vertex};
 use std::{convert::TryInto, io::Read};
 
 use crate::Scene;
@@ -15,7 +15,7 @@ pub fn load_binary_from_path<P: AsRef<std::path::Path>>(path: P, scene: &mut Sce
     let mut vertices = Vec::with_capacity(vertex_count as usize);
 
     let mut vec4_buf = [0; 16];
-    for i in 0..vertex_count {
+    for _ in 0..vertex_count {
         reader.read_exact(&mut vec4_buf).unwrap();
         vertices.push(Vertex {
             position: [
