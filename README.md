@@ -1,7 +1,7 @@
 <h1 align="center">Loupiote 💡</h1>
 
 <p align="center">
-    Interactive <strong>pathtracing</strong> library & standalone for <strong>Rust</strong> 🦀 and <strong>JavaScript</strong>!
+    Interactive GPU-based <strong>pathtracing</strong> library & standalone for <strong>Rust</strong> 🦀 and <strong>JavaScript</strong>!
 </p>
 
 ![Pathtraced Sponza](screenshots/sponza.png)
