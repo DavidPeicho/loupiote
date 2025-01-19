@@ -178,9 +178,8 @@ impl ASVGF {
         let resources = ScreenResources::new(device, size);
 
         let passes = ASVGFPasses {
-            // temporal: TemporalAccumulationPass::new(device, spp, None),
             temporal: TemporalAccumulationPass::new_inlined(device, spp),
-            atrous: ATrousPass::new(device, spp, None),
+            atrous: ATrousPass::new(device, spp),
             composit: CompositingPass::new_inlined(device, spp),
         };
 
@@ -211,7 +210,7 @@ impl ASVGF {
             .pingpong
             .iter()
             .enumerate()
-            .map(|(i, res)| {
+            .map(|(_, res)| {
                 // @todo: Use temporary radiance to not overwrite temporally accumulated one
                 passes.atrous.create_frame_bind_groups(
                     device,

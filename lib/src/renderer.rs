@@ -273,7 +273,7 @@ impl Renderer {
                 &geometry_bindgroup_layout,
                 &surface_bindgroup_layout,
             ),
-            accumulation: passes::AccumulationPass::new(device, &shaders, None),
+            accumulation: passes::AccumulationPass::new(device, &shaders),
             blit: passes::BlitPass::new(device, &shaders, swapchain_format),
             lightmap: passes::LightmapPass::new(device, &shaders, swapchain_format),
             blit_texture: passes::BlitTexturePass::new(device, &shaders, swapchain_format),
@@ -690,14 +690,6 @@ impl Renderer {
         scene_resources: &SceneGPU,
         probe: Option<&ProbeGPU>,
     ) {
-        let texture_info_view = match &scene_resources.atlas {
-            Some(atlas) => atlas.info_texture_view(),
-            _ => device.default_textures().non_filterable_1d(),
-        };
-        let texture_atlas_view = match &scene_resources.atlas {
-            Some(atlas) => atlas.texture_view(),
-            _ => device.default_textures().filterable_2darray(),
-        };
         let probe_view = match probe {
             Some(p) => &p.view,
             _ => device.default_textures().filterable_2d(),
@@ -722,8 +714,8 @@ impl Renderer {
             device,
             scene_resources.materials_buffer.as_storage_slice().unwrap(),
             probe_view,
-            texture_info_view,
-            texture_atlas_view,
+            scene_resources.atlas.texture_blocks(),
+            scene_resources.atlas.texture(),
             device.sampler_nearest(),
             device.sampler_linear(),
             noise_texture,

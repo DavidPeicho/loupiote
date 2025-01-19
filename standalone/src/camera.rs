@@ -99,7 +99,12 @@ impl CameraController {
         self.move_velocity = self.move_velocity * move_damping;
 
         let translation = glam::Mat4::from_translation(self.origin);
-        let rot = glam::Mat4::from_cols(right.extend(0.0), up.extend(0.0), self.direction.extend(0.0), glam::Vec4::W);
+        let rot = glam::Mat4::from_cols(
+            right.extend(0.0),
+            up.extend(0.0),
+            self.direction.extend(0.0),
+            glam::Vec4::W,
+        );
         translation * rot
         // return (right, up);
     }

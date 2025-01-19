@@ -5,7 +5,7 @@ use std::{
 };
 
 use albedo_lib::{
-    loaders::{self, GLTFLoaderOptions},
+    loaders::{self},
     BlitMode, Device, ProbeGPU, Renderer, Scene, SceneGPU,
 };
 use image::GenericImageView;
@@ -167,22 +167,10 @@ impl ApplicationContext {
         log!("}}");
     }
 
-    pub fn load_file_path<P: AsRef<path::Path>>(&mut self, path: P) -> Result<(), Error> {
-        let bytes = std::fs::read(path).unwrap();
-        self.load_file(&bytes[..])
-    }
-
     pub fn load_file(&mut self, data: &[u8]) -> Result<(), Error> {
         log!("Loading GLB...");
-        let limits = &self.platform.device.inner().limits();
         let mut scene = Scene::default();
-        loaders::load_gltf(
-            data,
-            &GLTFLoaderOptions {
-                atlas_max_size: limits.max_texture_dimension_1d,
-            },
-            &mut scene,
-        )?;
+        loaders::load_gltf(data, &mut scene)?;
         self.upload_scene(scene)
     }
 
@@ -246,6 +234,12 @@ impl ApplicationContext {
             &self.platform.queue,
         );
 
+        log!(
+            "Texture Atlas: {{\n\tTextures count = {}\n\tLayers count = {}\n}}",
+            self.scene_gpu.atlas.blocks().len(),
+            self.scene_gpu.atlas.atlas.layer_count(),
+        );
+
         // Update GUI information.
         self.gui
             .windows
@@ -255,13 +249,6 @@ impl ApplicationContext {
             .windows
             .scene_info_window
             .set_bvh_nodes_count(self.scene.blas.nodes.len());
-
-        if let Some(atlas) = &self.scene.atlas {
-            log!("Texture Atlas: {{");
-            log!("\tTextures count = {}", atlas.textures().len());
-            log!("\tLayers count = {}", atlas.layer_count());
-            log!("}}");
-        }
 
         self.renderer
             .set_resources(&self.platform.device, &self.scene_gpu, self.probe.as_ref());

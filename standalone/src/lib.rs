@@ -1,7 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
 use camera::CameraController;
-use loaders::GLTFLoaderOptions;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -112,22 +111,17 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
 
         // app_context.load_file_path(scene_path).unwrap();
 
-        let limits = &app_context.platform.device.inner().limits();
+        let mut scene = Scene::default();
 
-        let mut scene = loaders::load_gltf_path(
-            gltf_path,
-            &GLTFLoaderOptions {
-                atlas_max_size: limits.max_texture_dimension_1d,
-            },
-        )
-        .unwrap();
-
-        // Move helmet up.
-        loaders::load_binary_from_path("./assets/binary/cryteksponza.bin", &mut scene);
-        let model_to_world = scene.blas.instances[0].model_to_world;
-        scene.blas.instances[0].set_transform(
+        // Load helmet and move up.
+        loaders::load_gltf_path(gltf_path, &mut scene).unwrap();
+        let model_to_world = scene.blas.instances[1].model_to_world;
+        scene.blas.instances[1].set_transform(
             glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)) * model_to_world,
         );
+
+        // loaders::load_gltf_path("./assets/sponza2.glb", &opts, &mut scene).unwrap();
+        loaders::load_gltf_path("./assets/sponza3.glb", &mut scene).unwrap();
 
         app_context.upload_scene(scene).unwrap();
     }

@@ -8,6 +8,10 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Self {
-        Self { accumulate: false, use_blue_noise: false, blit_mode: BlitMode::Pahtrace }
+        Self {
+            accumulate: false,
+            use_blue_noise: false,
+            blit_mode: BlitMode::Pahtrace,
+        }
     }
 }
