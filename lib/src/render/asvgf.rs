@@ -292,10 +292,10 @@ impl ASVGF {
     }
 
     pub fn reload_shaders(&mut self, device: &wgpu::Device, spp: &ShaderCache) {
-        // match TemporalAccumulationPass::new(device, spp) {
-        //     Ok(pass) => self.passes.temporal = pass,
-        //     Err(e) => println!("Failed to reload temporal pass, reason:\n{:?}", e),
-        // };
+        match TemporalAccumulationPass::new(device, spp) {
+            Ok(pass) => self.passes.temporal = pass,
+            Err(e) => println!("Failed to reload temporal pass, reason:\n{:?}", e),
+        };
         match CompositingPass::new(device, spp) {
             Ok(pass) => self.passes.composit = pass,
             Err(e) => println!(
