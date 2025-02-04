@@ -4,11 +4,11 @@ use std::{
     time::Instant,
 };
 
-use albedo_lib::{
+use image::GenericImageView;
+use loupiote_core::{
     loaders::{self},
     BlitMode, Device, ProbeGPU, Renderer, Scene, SceneGPU,
 };
-use image::GenericImageView;
 use winit::{
     application::ApplicationHandler,
     keyboard::{Key, NamedKey},

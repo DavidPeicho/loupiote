@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 
 use winit::{self, event_loop::EventLoop};
 
-use albedo_lib::*;
+use loupiote_core::*;
 
 mod app;
 use app::*;

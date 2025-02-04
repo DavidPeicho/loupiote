@@ -1,4 +1,4 @@
-use albedo_lib::BlitMode;
+use loupiote_core::BlitMode;
 
 pub struct Settings {
     pub accumulate: bool,

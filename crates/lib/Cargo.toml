@@ -1,20 +1,22 @@
 [package]
-name = "albedo_lib"
+name = "loupiote-core"
 version = "0.0.1-beta.0"
 authors = ["David Peicho <david.peicho@gmail.com>"]
 edition = "2018"
 
 [lib]
 [target.'cfg(target_arch = "wasm32")']
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-image = { workspace = true }
 glam = { workspace = true }
 wgpu = { workspace = true }
 pas = { workspace = true }
-albedo_backend = { git = "https://github.com/albedo-engine/albedo.git" }
-albedo_rtx = { git = "https://github.com/albedo-engine/albedo.git" }
+albedo_backend = { path = "../../../albedo/crates/albedo_backend" }
+albedo_rtx = { path = "../../../albedo/crates/albedo_rtx" }
 bytemuck = "1.7.2"
 futures-intrusive = "0.4"
+
+# WASM dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gltf = "1.4.1"

@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "standalone",
-  "lib",
+  "crates/standalone",
+  "crates/lib",
+  "loupiote-js"
 ]
-default-members = ["standalone"]
+default-members = ["crates/standalone"]
 
 [workspace.dependencies]
 image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
