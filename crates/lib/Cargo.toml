@@ -4,10 +4,6 @@ version = "0.0.1-beta.0"
 authors = ["David Peicho <david.peicho@gmail.com>"]
 edition = "2018"
 
-[lib]
-[target.'cfg(target_arch = "wasm32")']
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 glam = { workspace = true }
 wgpu = { workspace = true }
@@ -19,4 +15,5 @@ futures-intrusive = "0.4"
 
 # WASM dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+albedo_rtx = { path = "../../../albedo/crates/albedo_rtx", default-features = false }
 gltf = "1.4.1"

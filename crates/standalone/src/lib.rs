@@ -120,7 +120,6 @@ pub fn run((event_loop, platform): (winit::event_loop::EventLoop<Event>, Plaftor
             glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)) * model_to_world,
         );
 
-        // loaders::load_gltf_path("./assets/sponza2.glb", &opts, &mut scene).unwrap();
         loaders::load_gltf_path("./assets/sponza3.glb", &mut scene).unwrap();
 
         app_context.upload_scene(scene).unwrap();
@@ -174,13 +173,7 @@ pub async fn setup() -> (winit::event_loop::EventLoop<Event>, Plaftorm) {
             .expect("couldn't append canvas to document body");
     }
 
-    let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends,
-        flags: wgpu::InstanceFlags::from_build_config().with_env(),
-        dx12_shader_compiler: wgpu::Dx12Compiler::default(),
-        gles_minor_version: wgpu::Gles3MinorVersion::default(),
-    });
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
 
     let window = Arc::new(window);
     let surface = instance.create_surface(window.clone()).unwrap();
