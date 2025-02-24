@@ -4,11 +4,11 @@ use std::{
     time::Instant,
 };
 
-use albedo_lib::{
+use image::GenericImageView;
+use loupiote_core::{
     loaders::{self},
     BlitMode, Device, ProbeGPU, Renderer, Scene, SceneGPU,
 };
-use image::GenericImageView;
 use winit::{
     application::ApplicationHandler,
     keyboard::{Key, NamedKey},
@@ -60,12 +60,7 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub fn init(&mut self) {
-        // self.settings.blit_mode = BlitMode::Pahtrace;
-        self.settings.blit_mode = BlitMode::Temporal;
-        self.camera_controller = CameraController::from_origin_dir(
-            glam::Vec3::new(2.0, 0.0, 2.0),
-            glam::Vec3::new(-1.0, 0.0, -1.0).normalize(),
-        );
+        self.settings.blit_mode = BlitMode::DenoisedPathrace;
         self.camera_controller = CameraController::from_origin_dir(
             glam::Vec3::new(-10.0, 1.0, 0.0),
             glam::Vec3::new(1.0, 0.35, 0.0).normalize(),

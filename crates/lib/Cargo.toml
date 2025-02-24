@@ -1,0 +1,20 @@
+[package]
+name = "loupiote-core"
+version = "0.0.1-beta.0"
+authors = ["David Peicho <david.peicho@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+glam = { workspace = true }
+wgpu = { workspace = true }
+pas = { workspace = true }
+albedo_backend = { path = "../../../albedo/crates/albedo_backend" }
+bytemuck = "1.7.2"
+futures-intrusive = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gltf = "1.4.1"
+
+# WASM dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+albedo_rtx = { path = "../../../albedo/crates/albedo_rtx", default-features = false }

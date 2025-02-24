@@ -92,6 +92,7 @@ impl ProbeGPU {
         });
 
         let probe_texture_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let rbge8_bytes: u32 = 4 as u32;
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &probe_texture,
@@ -102,9 +103,7 @@ impl ProbeGPU {
             data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(
-                    std::mem::size_of::<image::codecs::hdr::Rgbe8Pixel>() as u32 * width,
-                ),
+                bytes_per_row: Some(rbge8_bytes * width),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {

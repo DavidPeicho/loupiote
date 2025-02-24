@@ -1,0 +1,40 @@
+[package]
+name = "standalone"
+version = "0.1.0"
+authors = ["David Peicho <david.peicho@gmail.com>"]
+edition = "2018"
+
+# [lib]
+# crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+glam = { workspace = true }
+wgpu = { workspace = true }
+image = { version = "0.24.1", default-features = false, features = ["png", "hdr"] }
+loupiote-core = { path = "../lib", version = "0.0.1-beta.0", features = [] }
+hotwatch = "0.4.6"
+winit = "=0.30.9" # Can be changed when egui supports it
+enumflags2 = "0.7.1"
+# egui = { git = "https://github.com/emilk/egui.git" }
+# egui-wgpu =  { git = "https://github.com/emilk/egui.git", default-features = false, features = [
+#     "winit"
+# ] }
+egui-winit =  { version = "0.31.0", default-features = false, features = [] }
+egui = { version = "0.31.0" }
+egui-wgpu =  { version = "0.31.0", default-features = false, features = ["winit"] }
+rfd = "0.14.1"
+pollster = "0.2"
+
+# Native dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+async-executor = "1.0"
+
+# WASM dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.83"
+wasm-bindgen-futures = "0.4.33"
+js-sys = "0.3.60"
+log = "0.4"
+console_log = "0.2"
+console_error_panic_hook = "0.1.7"
+web-sys = { version = "0.3.74", default-features = false }

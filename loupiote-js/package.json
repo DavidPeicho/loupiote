@@ -1,0 +1,16 @@
+{
+  "name": "loupiote",
+  "version": "0.0.1-beta.0",
+  "description": "Wrapper for the Loupiote pathtracing library",
+  "module": "dist/index.js",
+  "author": "David Peicho",
+  "license": "MIT",
+  "scripts": {
+    "build": "npm run build:native && npm run build:js",
+    "build:native": "cd ../crates/wasm && wasm-pack build --out-name loupiote --target web",
+    "build:js": "node esbuild.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}
