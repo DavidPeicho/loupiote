@@ -423,7 +423,7 @@ impl ApplicationHandler<crate::Event> for ApplicationContext {
         let _ = (event_loop, cause);
     }
 
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: crate::Event) {
+    fn user_event(&mut self, _: &winit::event_loop::ActiveEventLoop, event: crate::Event) {
         match event {
             Event::SaveScreenshot(path) => self.save_screenshot(path),
             Event::ReloadShaders => self.reload_shaders(),

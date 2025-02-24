@@ -94,14 +94,14 @@ impl ProbeGPU {
         let probe_texture_view = probe_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let rbge8_bytes: u32 = 4 as u32;
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &probe_texture,
                 aspect: wgpu::TextureAspect::All,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
             },
             data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(rbge8_bytes * width),
                 rows_per_image: Some(height),

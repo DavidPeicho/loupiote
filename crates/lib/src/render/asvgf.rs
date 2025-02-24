@@ -259,13 +259,13 @@ impl ASVGF {
         let curr_radiance: &wgpu::Texture =
             &self.resources.pingpong[self.current_frame_back as usize].radiance_img;
         encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &curr_radiance,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.resources.radiance_img_temp,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,

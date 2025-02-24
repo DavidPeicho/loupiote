@@ -14,6 +14,7 @@ futures-intrusive = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gltf = "1.4.1"
+albedo_rtx = { path = "../../../albedo/crates/albedo_rtx" }
 
 # WASM dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
