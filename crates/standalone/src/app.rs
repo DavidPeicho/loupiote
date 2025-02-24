@@ -60,15 +60,11 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub fn init(&mut self) {
-        self.settings.blit_mode = BlitMode::Pahtrace;
+        self.settings.blit_mode = BlitMode::DenoisedPathrace;
         self.camera_controller = CameraController::from_origin_dir(
             glam::Vec3::new(-10.0, 1.0, 0.0),
             glam::Vec3::new(1.0, 0.35, 0.0).normalize(),
         );
-        // self.camera_controller = CameraController::from_origin_dir(
-        //     glam::Vec3::new(0.0, 0.0, 5.0),
-        //     glam::Vec3::new(0.0, 0.0, -1.0).normalize(),
-        // );
     }
 
     pub fn run_command(&mut self, command: commands::EditorCommand) {

@@ -9,11 +9,12 @@ glam = { workspace = true }
 wgpu = { workspace = true }
 pas = { workspace = true }
 albedo_backend = { path = "../../../albedo/crates/albedo_backend" }
-albedo_rtx = { path = "../../../albedo/crates/albedo_rtx" }
 bytemuck = "1.7.2"
 futures-intrusive = "0.4"
 
-# WASM dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-albedo_rtx = { path = "../../../albedo/crates/albedo_rtx", default-features = false }
 gltf = "1.4.1"
+
+# WASM dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+albedo_rtx = { path = "../../../albedo/crates/albedo_rtx", default-features = false }

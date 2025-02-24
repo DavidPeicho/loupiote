@@ -3,7 +3,7 @@ resolver = "2"
 members = [
   "crates/standalone",
   "crates/lib",
-  "loupiote-js"
+  "crates/wasm"
 ]
 default-members = ["crates/standalone"]
 
@@ -12,10 +12,6 @@ image = { version = "0.24.1", default-features = false, features = ["png", "hdr"
 glam = "0.29"
 wgpu = "24.0.0"
 pas = "0.3.0"
-
-# @todo: Remove when merged: https://github.com/gfx-rs/wgpu/pull/6513
-# [patch.crates-io]
-# wgpu = { git = "https://github.com/DavidPeicho/wgpu", branch = "trunk", "features" = ["glsl-in"] }
 
 [profile.dev]
 opt-level = 1
